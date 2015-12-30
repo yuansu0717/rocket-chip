@@ -123,6 +123,12 @@ class WithTraceGen extends Config(
     case AddressBag => List(0x8, 0x10, 0x108, 0x100008)
   })
 
+class WithFPUTest extends Config(
+  (pname, site, here) => pname match {
+    case BuildGroundTest =>
+      (id: Int, p: Parameters) => Module(new FPUTestSuite()(p))
+  })
+
 class GroundTestConfig extends Config(new WithGroundTest ++ new DefaultConfig)
 class MemtestConfig extends Config(new WithMemtest ++ new GroundTestConfig)
 class MemtestL2Config extends Config(
@@ -138,6 +144,7 @@ class DmaStreamTestConfig extends Config(new WithDmaStreamTest ++ new WithStream
 class NastiConverterTestConfig extends Config(new WithNastiConverterTest ++ new GroundTestConfig)
 class UnitTestConfig extends Config(new WithUnitTest ++ new GroundTestConfig)
 class TraceGenConfig extends Config(new With2Cores ++ new WithL2Cache ++ new WithTraceGen ++ new GroundTestConfig)
+class FPUTestConfig extends Config(new WithFPUTest ++ new GroundTestConfig)
 
 class FancyMemtestConfig extends Config(
   new With2Cores ++ new With2MemoryChannels ++ new With2BanksPerMemChannel ++
