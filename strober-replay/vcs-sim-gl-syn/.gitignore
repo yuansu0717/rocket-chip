@@ -1,0 +1,6 @@
+simv-*
+*.key
+*.vpd
+*.vcd
+*.match
+logs

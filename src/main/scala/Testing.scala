@@ -3,6 +3,7 @@
 package rocketchip
 
 import Chisel._
+import sys.process.stringSeqToProcess
 
 abstract class RocketTestSuite {
   val dir: String
@@ -110,7 +111,7 @@ object DefaultTestSuites {
   val rv64i = List(rv64ui, rv64si, rv64mi)
 
   val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", Set(
-    "median", "multiply", "qsort", "towers", "vvadd", "mm", "dhrystone", "spmv", "mt-vvadd", "mt-matmul"))
+    "median", "multiply", /*"qsort",*/ "towers", "vvadd", /*"mm", "dhrystone",*/ "spmv"/*, "mt-vvadd", "mt-matmul"*/))
 
   val mtBmarks = new BenchmarkTestSuite("mt", "$(base_dir)/riscv-tools/riscv-tests/mt",
     ((0 to 4).map("vvadd"+_) ++ 
@@ -122,17 +123,60 @@ object DefaultTestSuites {
     "led", "mbist"))
 }
 
+class RocketChipReplay(c: Module, samples: Seq[strober.Sample], matchFile: Option[String] = None,
+    testCmd: Option[String] = Driver.testCommand, log: Option[String] = None)
+    extends strober.Replay(c.asInstanceOf[Top], samples, matchFile, testCmd, None, log) {
+  override def expect(data: Bits, expected: BigInt) = {
+    // Sadly, Design Compiler optimization prunes the registers
+    // directly connected to the tag output, causing output value descrepancy...
+    // Thus, check only when the memory request is valid
+    val top = c.asInstanceOf[Top]
+    if (data eq top.io.mem.req_cmd.bits.tag)
+      peek(top.io.mem.req_cmd.valid) == 0 || super.expect(data, expected)
+    else
+      super.expect(data, expected)
+  }
+}
+
 object TestGenerator extends App {
   val gen = () => Class.forName("rocketchip."+args(0)).newInstance().asInstanceOf[Module]
-  args(0) match {
-    case "Top" if args exists (_.slice(0, 7) == "+sample")  => 
-      chiselMain.run(args.drop(1), gen, (c: Module) => new RocketChipReplay(c, args.drop(1)))
-    case "TopWrapper" => 
-      chiselMain.run(args.drop(1), gen, (c: Module) => new RocketChipSimTester(c, args.drop(1)))
-    case "NASTIShim" => 
-      chiselMain.run(args.drop(1), gen, (c: Module) => new RocketChipNASTIShimTester(c, args.drop(1)))
-    case _ => 
-      chiselMain.run(args.drop(1), gen, (c: Module) => new RocketChipTester(c, args.drop(1)))
+  if (args(1) == "replay") {
+    import scala.actors.Actor._
+    // args(2): sample file
+    // args(3): match file
+    // args(4): # of replay instances in parallel
+    val top = chiselMain.run(args drop 4, gen)
+    val logDir = Driver.ensureDir(s"${Driver.targetDir}/logs")
+    val prefix = (new java.io.File(args(2)).getName split '.').head
+    val samples = strober.Sample.load(args(2), 
+      new java.io.PrintStream(s"${logDir}/${prefix}-sample.log"))
+    val matchFile = args(3) match { case "none" => None case p => Some(p) }
+    val N = args(4).toInt
+    case object ReplayFin
+    val replays = List.fill(N){ actor { loop { react {
+      case (sample: strober.Sample, cmd: Option[String], log: Option[String]) =>
+        assert((new RocketChipReplay(top, Seq(sample), matchFile, cmd, log=log)).finish)
+      case ReplayFin => exit()
+    } } } }
+    samples.zipWithIndex foreach {case (sample, idx) =>
+      val vcd  = s"${Driver.targetDir}/${prefix}_${idx}_pipe.vcd"
+      val vpd  = s"${Driver.targetDir}/${prefix}_${idx}.vpd"
+      val saif = s"${Driver.targetDir}/${prefix}_${idx}.saif"
+      val log  = s"${logDir}/${prefix}_${idx}.log"
+      val cmd  = Driver.testCommand match {
+        case None => 
+        case Some(p) if matchFile == None =>
+          Some(List(p, s"+vpdfile=${vpd}") mkString " ")
+        case Some(p) =>
+          Seq("rm", "-rf", vcd, vpd).!
+          val pipe = List(p, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
+          Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " ")
+      }
+      replays(idx % N) ! (sample, cmd, Some(log))
+    }
+    replays foreach (_ ! ReplayFin)
+  } else {
+    chiselMain.run(args.drop(1), gen) 
+    TestGeneration.generateMakefrag
   }
-  TestGeneration.generateMakefrag
 }

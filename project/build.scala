@@ -12,7 +12,10 @@ object BuildSettings extends Build {
     parallelExecution in Global := false,
     traceLevel   := 15,
     scalacOptions ++= Seq("-deprecation","-unchecked"),
-    libraryDependencies ++= Seq("org.scala-lang" % "scala-reflect" % scalaVersion.value)
+    libraryDependencies ++= Seq(
+      "org.scala-lang" % "scala-reflect" % scalaVersion.value,
+      "org.scala-lang" % "scala-actors" % scalaVersion.value,
+      "org.scalatest" % "scalatest_2.11" % "2.2.4" % "test")
   )
 
   lazy val chisel    = project
@@ -37,7 +40,7 @@ object BuildSettings extends Build {
       a.split(",")
     },
     htif := {
-      s"make -C src/main/resources BASE_DIR=${baseDirectory.value}" ! 
+      s"make -C src/test/resources BASE_DIR=${baseDirectory.value}" ! 
     },
     unmanagedSourceDirectories in Compile ++= addons.value.map(baseDirectory.value / _ / "src/main/scala"),
     mainClass in (Compile, run) := Some("rocketchip.TestGenerator"),

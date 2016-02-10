@@ -1,1 +1,0 @@
-../pt-pwr/Makefile

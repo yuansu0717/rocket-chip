@@ -1,0 +1,68 @@
+# Samples
+SAMPLE ?=
+prefix  = $(notdir $(basename $(if $(SAMPLE), $(SAMPLE), $(generated_dir)/$(MODEL).sample)))
+$(generated_dir)/$(MODEL).sample: $(base_dir)/strober-fpga/results/$(MODEL).sample
+	mkdir -p $(generated_dir)
+	cp $< $@
+
+N ?= 4 # num of replay instances
+
+# Chisel Args
+BASE_ARGS := --W0W --configInstance $(PROJECT).$(CONFIG) --noAssert 
+COMP_ARGS := $(BASE_ARGS) --targetDir $(generated_dir) --genHarness --compile --compileInitializationUnoptimized
+TEST_ARGS := $(BASE_ARGS) --backend null --test
+
+# Build RocketChip
+compile-cpp: $(chisel_srcs) 
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(MODEL) $(COMP_ARGS) --noIoDebug"
+
+compile-cpp-debug: $(chisel_srcs)
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(MODEL) $(COMP_ARGS) --debug --vcd"
+
+compile-v $(generated_dir)/$(MODEL).$(CONFIG).d: $(chisel_srcs)
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(MODEL) $(COMP_ARGS) --v"
+
+# Build VCS Simulators
+$(vcs_sim_rtl_dir)/simv-$(CONFIG):
+	$(MAKE) -C $(vcs_sim_rtl_dir) CONFIG=$(CONFIG)
+
+$(vcs_sim_gl_syn_dir)/simv-$(CONFIG):
+	$(MAKE) -C $(vcs_sim_gl_syn_dir) CONFIG=$(CONFIG)
+
+$(vcs_sim_gl_par_dir)/simv-$(CONFIG):
+	$(MAKE) -C $(vcs_sim_gl_par_dir) CONFIG=$(CONFIG)
+
+# Name Mapping
+$(vcs_sim_gl_syn_dir)/$(MODEL).$(CONFIG).match:
+	$(MAKE) -C $(vcs_sim_gl_syn_dir) $(notdir $@) CONFIG=$(CONFIG)
+
+$(vcs_sim_gl_par_dir)/$(MODEL).$(CONFIG).match:
+	$(MAKE) -C $(vcs_sim_gl_par_dir) $(notdir $@) CONFIG=$(CONFIG)
+
+
+# Replay on Chisel emulator or VCS
+replay: $(if $(SAMPLE), $(SAMPLE), $(generated_dir)/$(MODEL).sample)
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
+	"run $(MODEL) replay $< none $(N) $(TEST_ARGS) --targetDir $(generated_dir) --testCommand $(generated_dir)/$(MODEL).$(CONFIG)"
+
+# Replay on VCS RTL Simulation
+replay-rtl: $(if $(SAMPLE), $(SAMPLE), $(generated_dir)/$(MODEL).sample) $(vcs_sim_rtl_dir)/simv-$(CONFIG)
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
+	"run $(MODEL) replay $< none $(N) $(TEST_ARGS) --targetDir $(vcs_sim_rtl_dir) --noInlineMem --testCommand $(word 2, $^)"
+
+# Replay on Post-Synthesis Simulation
+replay-gl-syn: $(if $(SAMPLE), $(SAMPLE), $(generated_dir)/$(MODEL).sample) $(vcs_sim_gl_syn_dir)/$(MODEL).$(CONFIG).match $(vcs_sim_gl_syn_dir)/simv-$(CONFIG)
+	rm -rf $(vcs_sim_gl_syn_dir)/*-pipe.vcd
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
+	"run $(MODEL) replay $< $(word 2, $^) $(N) $(TEST_ARGS) --targetDir $(vcs_sim_gl_syn_dir) --noInlineMem --testCommand $(word 3, $^) +vcs+initreg+0"
+
+# Replay on Post-Place-and-Route Simulation
+replay-gl-par: $(if $(SAMPLE), $(SAMPLE), $(generated_dir)/$(MODEL).sample) $(vcs_sim_gl_par_dir)/$(MODEL).$(CONFIG).match $(vcs_sim_gl_par_dir)/simv-$(CONFIG)
+	rm -rf $(vcs_sim_gl_par_dir)/*-pipe.vcd
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
+	"run $(MODEL) replay $< $(word 2, $^) $(N) $(TEST_ARGS) --targetDir $(vcs_sim_gl_par_dir) --noInlineMem --testCommand $(word 3, $^) +vcs+initreg+0"
+
+# Power Estimation
+pt_prefix ?= $(prefix)
+replay-pwr: 
+	$(MAKE) -C $(pt_pwr_dir) pt_prefix=$(pt_prefix)
