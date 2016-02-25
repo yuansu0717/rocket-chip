@@ -111,7 +111,7 @@ object DefaultTestSuites {
   val rv64i = List(rv64ui, rv64si, rv64mi)
 
   val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", Set(
-    "median", "multiply", /*"qsort",*/ "towers", "vvadd", /*"mm", "dhrystone",*/ "spmv"/*, "mt-vvadd", "mt-matmul"*/))
+    "median", "multiply", "qsort", "towers", "vvadd", "mm", "dhrystone", "spmv", "mt-vvadd", "mt-matmul"))
 
   val mtBmarks = new BenchmarkTestSuite("mt", "$(base_dir)/riscv-tools/riscv-tests/mt",
     ((0 to 4).map("vvadd"+_) ++ 
@@ -123,9 +123,10 @@ object DefaultTestSuites {
     "led", "mbist"))
 }
 
-class RocketChipReplay(c: Module, samples: Seq[strober.Sample], matchFile: Option[String] = None,
-    testCmd: Option[String] = Driver.testCommand, log: Option[String] = None)
-    extends strober.Replay(c.asInstanceOf[Top], samples, matchFile, testCmd, None, log) {
+class RocketChipReplay(c: Module, samples: Seq[strober.Sample], 
+    matchFile: Option[String] = None, testCmd: Option[String] = Driver.testCommand, 
+    dump: Option[String] = None, log: Option[String] = None) 
+    extends strober.Replay(c.asInstanceOf[Top], samples, matchFile, testCmd, dump, log) {
   override def expect(data: Bits, expected: BigInt) = {
     // Sadly, Design Compiler optimization prunes the registers
     // directly connected to the tag output, causing output value descrepancy...
@@ -136,7 +137,7 @@ class RocketChipReplay(c: Module, samples: Seq[strober.Sample], matchFile: Optio
     else
       super.expect(data, expected)
   }
-}
+} 
 
 object TestGenerator extends App {
   val gen = () => Class.forName("rocketchip."+args(0)).newInstance().asInstanceOf[Module]
@@ -145,7 +146,7 @@ object TestGenerator extends App {
     // args(2): sample file
     // args(3): match file
     // args(4): # of replay instances in parallel
-    val top = chiselMain.run(args drop 4, gen)
+    val top = chiselMain.run(args drop 5, gen)
     val logDir = Driver.ensureDir(s"${Driver.targetDir}/logs")
     val prefix = (new java.io.File(args(2)).getName split '.').head
     val samples = strober.Sample.load(args(2), 
@@ -155,10 +156,14 @@ object TestGenerator extends App {
     case object ReplayFin
     val replays = List.fill(N){ actor { loop { react {
       case (sample: strober.Sample, cmd: Option[String], log: Option[String]) =>
-        assert((new RocketChipReplay(top, Seq(sample), matchFile, cmd, log=log)).finish)
+        sender ! (try {
+          (new RocketChipReplay(top, Seq(sample), matchFile, cmd, log=log)).finish
+        } catch {
+          case _: Throwable => false
+        })
       case ReplayFin => exit()
     } } } }
-    samples.zipWithIndex foreach {case (sample, idx) =>
+    val futures = samples.zipWithIndex map {case (sample, idx) =>
       val vcd  = s"${Driver.targetDir}/${prefix}_${idx}_pipe.vcd"
       val vpd  = s"${Driver.targetDir}/${prefix}_${idx}.vpd"
       val saif = s"${Driver.targetDir}/${prefix}_${idx}.saif"
@@ -172,9 +177,12 @@ object TestGenerator extends App {
           val pipe = List(p, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
           Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " ")
       }
-      replays(idx % N) ! (sample, cmd, Some(log))
+      idx -> (replays(idx % N) !! (sample, cmd, Some(log)))
     }
     replays foreach (_ ! ReplayFin)
+    futures map {case (idx ,f) => 
+      f.inputChannel receive {case pass: Boolean => idx -> pass}
+    } foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
   } else {
     chiselMain.run(args.drop(1), gen) 
     TestGeneration.generateMakefrag

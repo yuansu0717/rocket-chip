@@ -2,5 +2,7 @@ simv-*
 *.key
 *.vpd
 *.vcd
+*.saif
 *.match
 logs
+DVEfiles

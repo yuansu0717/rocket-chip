@@ -3,21 +3,19 @@ sim_vsrcs = \
 	$(generated_dir)/$(MODEL).$(CONFIG).v \
 	$(generated_dir)/$(MODEL).$(CONFIG)-harness.v
 
-vpi_objs = $(generated_dir)/vpi.o
+vpi_srcs = $(generated_dir)/vpi.cpp
 tab_file = $(generated_dir)/vpi.tab
 
 CXX ?= g++
-CXXFLAGS := $(CXXFLAGS) -O2 -I$(VCS_HOME)/include -I$(generated_dir) -fPIC -std=c++11 
+CXXFLAGS := $(CXXFLAGS) -O2 -I$(VCS_HOME)/include -I$(generated_dir) -std=c++11 
 
 VCS = vcs -full64
 
-VCS_OPTS = -quiet -timescale=1ns/1ps -debug_pp -Mdir=simv-$(CONFIG).csrc -P $(tab_file) \
+VCS_OPTS = -q -timescale=1ns/1ps -debug_pp -Mdir=simv-$(CONFIG).csrc -P $(tab_file) \
 	+v2k +vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random \
+	-cpp $(CXX) -O2 -LDFLAGS -lstdc++ -CFLAGS "$(CXXFLAGS)"
 
 $(generated_dir)/$(MODEL).$(CONFIG)-harness.v: $(generated_dir)/$(MODEL).$(CONFIG).v
 
-$(vpi_objs): %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-simv-$(CONFIG): $(sim_vsrcs) $(vpi_objs)
+simv-$(CONFIG): $(sim_vsrcs) $(vpi_srcs)
 	$(VCS) $(VCS_OPTS) -o $@ $^

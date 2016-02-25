@@ -11,13 +11,9 @@ pt_pwr_dir = $(replay_dir)/pt-pwr
 CONFIG ?= DefaultFPGAConfig
 
 include $(base_dir)/Makefrag
-ifneq ($(MAKECMDGOALS),clean)
--include $(generated_dir)/$(MODEL).$(CONFIG).d
-endif
-
 include $(replay_dir)/Makefrag
 
-compile: $(generated_dir)/$(MODEL).$(CONFIG).d
+compile: compile-v
 
 clean:
 	rm -rf $(log_dir) $(generated_dir)

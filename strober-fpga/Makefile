@@ -12,13 +12,11 @@ include $(base_dir)/Makefrag
 
 # Generate bitstream
 board     ?= zc706
-const     := $(MODEL)-const
-fpga      := $(MODEL)-fpga
 memgen    := $(base_dir)/fsim/fpga_mem_gen
 board_dir := $(fpga_dir)/fpga-zynq/$(board)
 bitstream := fpga-images-$(board)/boot.bin
 
-$(generated_dir)/$(MODEL)-const.h:
+$(generated_dir)/$(MODEL)-const.h: $(chisel_srcs)
 	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run NASTIShim $(CHISEL_ARGS) --configDump --noInlineMem"
 	if [ -a $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).conf ]; then \
           $(memgen) $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).conf >> $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).v; \
@@ -27,9 +25,9 @@ $(generated_dir)/$(MODEL)-const.h:
 	cd $(generated_dir) ; cp $(MODEL).map $(MODEL).chain $(result_dir)
 	cd $(generated_dir) ; mv $(MODEL)NASTIShim.$(CONFIG).v $(MODEL)NASTIShim.v
 
-$(MODEL)-const: $(generated_dir)/$(MODEL)-const.h
+strober: $(generated_dir)/$(MODEL)-const.h
 	
-$(MODEL)-fpga: $(generated_dir)/$(MODEL)-const.h
+fpga: $(generated_dir)/$(MODEL)-const.h
 	cd $(board_dir); make clean; time make $(bitstream) DESIGN=$(MODEL); cp $(bitstream) $(result_dir)
 	cp $(board_dir)/fpga-images-$(board)/boot_image/rocketchip_wrapper.bit $(result_dir)/strober_wrapper.bit 
 
@@ -51,10 +49,10 @@ $(generated_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(f
 $(result_dir)/libfesvr.so: $(generated_dir)/libfesvr.so
 	cp $(generated_dir)/libfesvr.so $@
 
-$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(MODEL)-const 
+$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(generated_dir)/$(MODEL)-const.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $< 
 
-$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(MODEL)-const
+$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(generated_dir)/$(MODEL)-const.h
 	$(CXX) $(CXXFLAGS) -c -I$(csrc_dir) -I$(RISCV)/include -o $@ $<
 
 $(MODEL)-zynq: $(driver_obj) $(generated_dir)/strober.o 
@@ -65,4 +63,4 @@ driver: $(MODEL)-zynq
 clean:
 	rm -rf $(generated_dir) $(result_dir)
 
-.PHONY: $(MODEL)-const $(MODEL)-fpga
+.PHONY: const fpga driver

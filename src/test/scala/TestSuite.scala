@@ -3,7 +3,7 @@ package rocketchip
 import Chisel._
 import sys.process.stringSeqToProcess
 
-abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 8) 
+abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 6) 
     extends org.scalatest.FlatSpec with org.scalatest.BeforeAndAfter { 
   import scala.actors.Actor._
   import java.io.{File, PrintStream}
@@ -17,23 +17,35 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 8)
   private def debugArgs(b: String) = compArgs(b) ++ Array("--debug", "--vcd", "--vcdMem")
   private def testArgs(cmd: String) = baseArgs ++ Array(
     "--backend", "null", "--testCommand", cmd)
-  protected val configName = config.getClass.getName stripPrefix "rocketchip."
+  private val configName = config.getClass.getName stripPrefix "rocketchip."
 
   case class TestRun(c: Module, args: RocketChipTestArgs, sample: Option[String] = None)
-  case class TopReplay(c: Top, sample: Seq[strober.Sample], log: String) 
+  case class TopReplay(c: Top, sample: Seq[strober.Sample], dump: String, log: String) 
   case object TestFin
   protected val testers = List.fill(N){ actor { loop { react {
     case TestRun(c, args, sample) => c match {
-      case top: Top => 
-        sender ! (new RocketChipTester(top, args)).finish
-      case top: TopWrapper => 
-        sender ! (new RocketChipSimTester(top, args, sample)).finish
-      case top: NASTIShim =>
-        sender ! (new RocketChipNastiShimTester(top, args, sample)).finish
+      case top: Top => sender ! (try { 
+        (new RocketChipTester(top, args)).finish
+      } catch { 
+        case _: Throwable => false 
+      })
+      case top: TopWrapper => sender ! (try { 
+        (new RocketChipSimTester(top, args, sample)).finish
+      } catch { 
+        case _: Throwable => false 
+      })
+      case top: NASTIShim => sender ! (try { 
+        (new RocketChipNastiShimTester(top, args, sample)).finish
+      } catch { 
+        case _: Throwable => false 
+      })
       case _ => sender ! false
     }
-    case TopReplay(c, sample, log) =>
-      sender ! (new RocketChipReplay(c, sample, log=Some(log))).finish
+    case TopReplay(c, sample, dump, log) => sender ! (try { 
+      (new RocketChipReplay(c, sample, dump=Some(dump), log=Some(log))).finish
+    } catch { 
+      case _: Throwable => false 
+    })
     case TestFin => exit()
   } } } }
 
@@ -55,7 +67,6 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 8)
     dumpDir.listFiles foreach (_.delete)
     elaborate(c, "", false, Some(simv.getPath.toString))
   }
-
 
   def runSuites[T <: Module, S <: RocketTestSuite](c: T, suites: Iterable[S], maxcycles: Long = 100000000) {
     suites foreach { suite =>
@@ -100,8 +111,14 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 8)
           case s: BenchmarkTestSuite => s"${t}.riscv"
         }
         val sample = strober.Sample.load(s"${outDir}/${name}.sample")
-        val log = s"${logDir}/${name}-replay-${suffix}.log"
-        name -> (testers(i % N) !! new TopReplay(top, sample, log))
+        val log = s"${logDir}/replay-${suffix}-${name}.log"
+        val vcd = s"${dumpDir}/replay-${suffix}-${name}.vcd"
+        val vpd = s"${dumpDir}/replay-${suffix}-${name}.vpd"
+        val dump = Driver.backend match { 
+          case _: VerilogBackend => vpd
+          case _: CppBackend     => vcd
+        }
+        name -> (testers(i % N) !! new TopReplay(top, sample, dump, log))
       }
       behavior of s"[Replay] ${suite.makeTargetName} + ${suffix}"
       futures foreach {case (name, f) =>
@@ -120,188 +137,144 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 8)
   }
 }
 
+// Test Templates
+trait RunTests {
+  def suites: Iterable[RocketTestSuite]
+  def elaborateCpp[T <: Module](c: => T, debug: Boolean=false): T
+  def elaborateVerilog[T <: Module](c: => T, debug: Boolean=false): T
+  def elaborateSimv[T <: Module](c: => T, dir: String): T
+  def runSuites[T <: Module, S <: RocketTestSuite](c: T, suites: Iterable[S], maxcycles: Long = 100000000): Unit
+  def replaySamples[S <: RocketTestSuite](top: Top, suites: Iterable[S], suffix: String): Unit
+}
+trait AsmTests {
+  val suites = TestGeneration.asmSuites.values
+}
+trait BmarkTests {
+  val suites = TestGeneration.bmarkSuites.values
+}
+trait CppTests extends RunTests {
+  runSuites(elaborateCpp(new Top), suites)
+}
+trait VerilogTests extends RunTests {
+  runSuites(elaborateVerilog(new Top), suites)
+}
+trait CppTestsDebug extends RunTests {
+  runSuites(elaborateCpp(new Top, true), suites)
+}
+trait VerilogTestsDebug extends RunTests {
+  runSuites(elaborateVerilog(new Top, true), suites)
+}
+trait RTLTests extends RunTests {
+  val dir = "strober-replay/vcs-sim-rtl"
+  runSuites(elaborateSimv(new Top, dir), suites)
+}
+trait SYNTests extends RunTests {
+  val dir = "strober-replay/vcs-sim-gl-syn"
+  runSuites(elaborateSimv(new Top, dir), suites)
+}
+trait PARTests extends RunTests {
+  val dir = "strober-replay/vcs-sim-gl-par"
+  runSuites(elaborateSimv(new Top, dir), suites)
+}
+trait AsmCppTests extends AsmTests with CppTests
+trait AsmVerilogTests extends AsmTests with VerilogTests
+trait AsmCppTestsDebug extends AsmTests with CppTestsDebug
+trait AsmVerilogTestsDebug extends AsmTests with VerilogTestsDebug
+trait AsmRTLTests extends AsmTests with RTLTests
+trait AsmSYNTests extends AsmTests with SYNTests
+trait AsmPARTests extends AsmTests with PARTests
+trait BmarkCppTests extends BmarkTests with CppTests
+trait BmarkVerilogTests extends BmarkTests with VerilogTests
+trait BmarkCppTestsDebug extends BmarkTests with CppTestsDebug
+trait BmarkVerilogTestsDebug extends BmarkTests with VerilogTestsDebug
+trait BmarkRTLTests extends BmarkTests with RTLTests
+trait BmarkSYNTests extends BmarkTests with SYNTests
+trait BmarkPARTests extends BmarkTests with PARTests
+
+trait SimCppTests extends RunTests {
+  runSuites(elaborateCpp(new TopWrapper, true), suites)
+}
+trait SimVerilogTests extends RunTests {
+  runSuites(elaborateVerilog(new TopWrapper, true), suites)
+}
+trait NastiShimCppTests extends RunTests {
+  runSuites(elaborateCpp(new NASTIShim, true), suites)
+}
+trait NastiShimVerilogTests extends RunTests {
+  runSuites(elaborateVerilog(new NASTIShim, true), suites)
+}
+trait ReplayTests extends RunTests {
+  // replaySamples(elaborateCpp(new Top, true), suites, "cpp")
+  replaySamples(elaborateVerilog(new Top, true), suites, "verilog")
+}
+trait SimAsmCppTests extends AsmTests with SimCppTests with ReplayTests
+trait SimAsmVerilogTests extends AsmTests with SimVerilogTests with ReplayTests
+trait SimBmarkCppTests extends BmarkTests with SimCppTests with ReplayTests
+trait SimBmarkVerilogTests extends BmarkTests with SimVerilogTests with ReplayTests
+trait NastiShimAsmCppTests extends AsmTests with NastiShimCppTests with ReplayTests
+trait NastiShimAsmVerilogTests extends AsmTests with NastiShimVerilogTests with ReplayTests
+trait NastiShimBmarkCppTests extends BmarkTests with NastiShimCppTests with ReplayTests
+trait NastiShimBmarkVerilogTests extends BmarkTests with NastiShimVerilogTests with ReplayTests
+
 // Rocket Tests
-class RocketAsmCppTests extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateCpp(new Top), TestGeneration.asmSuites.values)
-}
-
-class RocketAsmVerilogTests extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateVerilog(new Top), TestGeneration.asmSuites.values)
-}
-
-class RocketAsmCppTestsDebug extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateCpp(new Top, true), TestGeneration.asmSuites.values)
-}
-
-class RocketAsmVerilogTestsDebug extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateVerilog(new Top, true), TestGeneration.asmSuites.values)
-}
-
-class RocketAsmRTLTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-rtl"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class RocketAsmSYNTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-syn"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class RocketAsmPARTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-par"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class RocketBmarkCppTests extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateCpp(new Top), TestGeneration.bmarkSuites.values)
-}
-
-class RocketBmarkVerilogTests extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateVerilog(new Top), TestGeneration.bmarkSuites.values)
-}
-
-class RocketBmarkCppTestsDebug extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateCpp(new Top, true), TestGeneration.bmarkSuites.values)
-}
-
-class RocketBmarkVerilogTestsDebug extends RocketChipTestSuite(new DefaultFPGAConfig) {
-  runSuites(elaborateVerilog(new Top, true), TestGeneration.bmarkSuites.values)
-}
-
-class RocketBmarkRTLTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-rtl"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
-
-class RocketBmarkSYNTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-syn"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
-
-class RocketBmarkPARTests extends RocketChipTestSuite(new DefaultFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-par"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
+// Change config for different params
+abstract class RocketTestsBase extends RocketChipTestSuite(new DefaultFPGAConfig)
+class RocketAsmCppTests extends RocketTestsBase with AsmCppTests
+class RocketAsmVerilogTests extends RocketTestsBase with AsmVerilogTests
+class RocketAsmCppTestsDebug extends RocketTestsBase with AsmCppTestsDebug
+class RocketAsmVerilogTestsDebug extends RocketTestsBase with AsmVerilogTestsDebug
+class RocketAsmRTLTests extends RocketTestsBase with AsmRTLTests
+class RocketAsmSYNTests extends RocketTestsBase with AsmSYNTests
+class RocketAsmPARTests extends RocketTestsBase with AsmPARTests
+class RocketBmarkCppTests extends RocketTestsBase with BmarkCppTests
+class RocketBmarkVerilogTests extends RocketTestsBase with BmarkVerilogTests
+class RocketBmarkCppTestsDebug extends RocketTestsBase with BmarkCppTestsDebug
+class RocketBmarkVerilogTestsDebug extends RocketTestsBase with BmarkVerilogTestsDebug
+class RocketBmarkRTLTests extends RocketTestsBase with BmarkRTLTests
+class RocketBmarkSYNTests extends RocketTestsBase with BmarkSYNTests
+class RocketBmarkPARTests extends RocketTestsBase with BmarkPARTests
 
 // BOOM Tests
-class BOOMAsmCppTests extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateCpp(new Top), TestGeneration.asmSuites.values)
-}
-
-class BOOMAsmVerilogTests extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateVerilog(new Top), TestGeneration.asmSuites.values)
-}
-
-class BOOMAsmCppTestsDebug extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateCpp(new Top, true), TestGeneration.asmSuites.values)
-}
-
-class BOOMAsmVerilogTestsDebug extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateVerilog(new Top, true), TestGeneration.asmSuites.values)
-}
-
-class BOOMAsmRTLTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-rtl"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class BOOMAsmSYNTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-syn"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class BOOMAsmPARTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-par"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.asmSuites.values) 
-}
-
-class BOOMBmarkCppTests extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateCpp(new Top), TestGeneration.bmarkSuites.values)
-}
-
-class BOOMBmarkVerilogTests extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateVerilog(new Top), TestGeneration.bmarkSuites.values)
-}
-
-class BOOMBmarkCppTestsDebug extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateCpp(new Top, true), TestGeneration.bmarkSuites.values)
-}
-
-class BOOMBmarkVerilogTestsDebug extends RocketChipTestSuite(new BOOMFPGAConfig) {
-  runSuites(elaborateVerilog(new Top, true), TestGeneration.bmarkSuites.values)
-}
-
-class BOOMBmarkRTLTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-rtl"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
-
-class BOOMBmarkSYNTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-syn"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
-
-class BOOMBmarkPARTests extends RocketChipTestSuite(new BOOMFPGAConfig, 4) {
-  val dir = "strober-replay/vcs-sim-gl-par"
-  runSuites(elaborateSimv(new Top, dir), TestGeneration.bmarkSuites.values) 
-}
+abstract class BOOMTestsSuite extends RocketChipTestSuite(new BOOMFPGAConfig)
+class BOOMAsmCppTests extends BOOMTestsSuite with AsmCppTests
+class BOOMAsmVerilogTests extends BOOMTestsSuite with AsmVerilogTests
+class BOOMAsmCppTestsDebug extends BOOMTestsSuite with AsmCppTestsDebug
+class BOOMAsmVerilogTestsDebug extends BOOMTestsSuite with AsmVerilogTestsDebug
+class BOOMAsmRTLTests extends BOOMTestsSuite with AsmRTLTests
+class BOOMAsmSYNTests extends BOOMTestsSuite with AsmSYNTests
+class BOOMAsmPARTests extends BOOMTestsSuite with AsmPARTests
+class BOOMBmarkCppTests extends BOOMTestsSuite with BmarkCppTests
+class BOOMBmarkVerilogTests extends BOOMTestsSuite with BmarkVerilogTests
+class BOOMBmarkCppTestsDebug extends BOOMTestsSuite with BmarkCppTestsDebug
+class BOOMBmarkVerilogTestsDebug extends BOOMTestsSuite with BmarkVerilogTestsDebug
+class BOOMBmarkRTLTests extends BOOMTestsSuite with BmarkRTLTests
+class BOOMBmarkSYNTests extends BOOMTestsSuite with BmarkSYNTests
+class BOOMBmarkPARTests extends BOOMTestsSuite with BmarkPARTests
 
 // Rocket SimWrapper Tests
-class RocketSimCppTests extends RocketChipTestSuite(new RocketSimConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateCpp(new TopWrapper, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
-
-class RocketSimVerilogTests extends RocketChipTestSuite(new RocketSimConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateVerilog(new TopWrapper, true), TestGeneration.bmarkSuites.values)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
+abstract class RocketSimTestsBase extends RocketChipTestSuite(new RocketSimConfig)
+class RocketSimAsmCppTests extends RocketSimTestsBase with SimAsmCppTests
+class RocketSimAsmVerilogTests extends RocketSimTestsBase with SimAsmVerilogTests
+class RocketSimBmarkCppTests extends RocketSimTestsBase with SimBmarkCppTests
+class RocketSimBmarkVerilogTests extends RocketSimTestsBase with SimBmarkVerilogTests
 
 // Rocket NastiShim Tests
-class RocketNastiShimCppTests extends RocketChipTestSuite(new RocketNastiConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateCpp(new NASTIShim, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
-
-class RocketNastiShimVerilogTests extends RocketChipTestSuite(new RocketNastiConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateVerilog(new NASTIShim, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
+abstract class RocketNastiShimTestsBase extends RocketChipTestSuite(new RocketNastiConfig)
+class RocketNastiShimAsmCppTests extends RocketNastiShimTestsBase with NastiShimAsmCppTests
+class RocketNastiShimAsmVerilogTests extends RocketNastiShimTestsBase with NastiShimAsmVerilogTests
+class RocketNastiShimBmarkCppTests extends RocketNastiShimTestsBase with NastiShimBmarkCppTests
+class RocketNastiShimBmarkVerilogTests extends RocketNastiShimTestsBase with NastiShimBmarkVerilogTests
 
 // BOOM SimWrapper Tests
-class BOOMSimCppTests extends RocketChipTestSuite(new BOOMSimConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateCpp(new TopWrapper, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
-
-class BOOMSimVerilogTests extends RocketChipTestSuite(new BOOMSimConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateVerilog(new TopWrapper, true), TestGeneration.bmarkSuites.values)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
+abstract class BOOMSimTestsBase extends RocketChipTestSuite(new BOOMSimConfig)
+class BOOMSimAsmCppTests extends BOOMSimTestsBase with SimAsmCppTests
+class BOOMSimAsmVerilogTests extends BOOMSimTestsBase with SimAsmVerilogTests
+class BOOMSimBmarkCppTests extends BOOMSimTestsBase with SimBmarkCppTests
+class BOOMSimBmarkVerilogTests extends BOOMSimTestsBase with SimBmarkVerilogTests
 
 // BOOM NastiShim Tests
-class BOOMNastiShimCppTests extends RocketChipTestSuite(new BOOMNastiConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateCpp(new NASTIShim, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
-
-class BOOMNastiShimVerilogTests extends RocketChipTestSuite(new BOOMNastiConfig) {
-  val suites = TestGeneration.bmarkSuites.values
-  runSuites(elaborateVerilog(new NASTIShim, true), suites)
-  replaySamples(elaborateCpp(new Top), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top), suites, "verilog")
-}
+class BOOMNastiShimTestsBase extends RocketChipTestSuite(new BOOMNastiConfig) 
+class BOOMNastiShimAsmCppTests extends BOOMNastiShimTestsBase with NastiShimAsmCppTests
+class BOOMNastiShimAsmVerilogTests extends BOOMNastiShimTestsBase with NastiShimAsmVerilogTests
+class BOOMNastiShimBmarkCppTests extends BOOMNastiShimTestsBase with NastiShimBmarkCppTests
+class BOOMNastiShimBmarkVerilogTests extends BOOMNastiShimTestsBase with NastiShimBmarkVerilogTests

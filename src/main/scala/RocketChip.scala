@@ -248,6 +248,48 @@ class DRAMCounters extends Module {
 
 // Strober
 class TopWrapper extends strober.SimWrapper(new Top) {
+  // Retiming annotation
+  target.children foreach {
+    case top: MultiChannelTop => top.tileList foreach {
+      case tile: RocketTile => tile.children foreach { 
+        case fpu: FPU => 
+          strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
+          strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
+          strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
+          fpu.children foreach {
+            case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
+              strober.transforms.addRetiming(divSqrt, 27)
+            case _ =>
+          }
+        case _ =>
+      }
+      case tile: BOOM.BOOMTile => tile.core.dpath.exe_units foreach {
+        case exe: BOOM.ALUExeUnit if exe.has_fpu =>
+          val fpu = exe.fpu.fpu
+          strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
+          strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
+          strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
+          fpu.children foreach {
+            case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
+              strober.transforms.addRetiming(divSqrt, 27)
+            case _ =>
+          }
+        case exe: BOOM.ALUMemExeUnit if exe.has_fpu =>
+          val fpu = exe.fpu.fpu
+          strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
+          strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
+          strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
+          fpu.children foreach {
+            case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
+              strober.transforms.addRetiming(divSqrt, 27)
+            case _ =>
+          }
+        case _ => 
+      } 
+      case _ =>
+    }
+    case _ =>
+  }
   // MemIO annotation
   strober.SimMemIO(target.io.mem)
 }

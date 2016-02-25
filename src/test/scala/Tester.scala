@@ -200,22 +200,24 @@ class RocketChipSimTester(c: TopWrapper, args: RocketChipTestArgs, sampleFile: O
   dataHandler.process()
   respHandler.process()
 
+  println(s"[RocketchipSimTester] runs ${args.loadmem}")
+
   args.log match {
     case None =>
     case Some(f) => addObserver(new StroberObserver(file=f))
   }
 
   mem loadMem args.loadmem
-  setTraceLen(16)
+  setTraceLen(7)
   if (!run(top, htif, args.maxcycles, args.log)) fail
 }
 
 
-class RocketChipNastiShimTester(c: NASTIShim, args: RocketChipTestArgs, sampleFile: Option[String] = None)
+class RocketChipNastiShimTester(c: NASTIShim, args: RocketChipTestArgs, 
+    sampleFile: Option[String] = None, stepSize: Int = 128, memCycles: Int = 12) 
     extends strober.NASTIShimTester(c, new strober.StroberTesterArgs(
       false, true, sampleFile, args.testCmd, args.dumpFile)) with RocketTests {
   val top = c.sim.target
-  val stepSize = 128
   val htif = new TesterHTIF(0, args.htif)
   val htif_bytes = top.io.host.in.bits.needWidth/8
   var htif_in_valid = false
@@ -227,9 +229,11 @@ class RocketChipNastiShimTester(c: NASTIShim, args: RocketChipTestArgs, sampleFi
     case Some(f) => addObserver(new StroberObserver(file=f))
   }
 
-  require(traceLen % stepSize == 0)
-  // setTraceLen(128)
-  setMemCycles(100)
+  println(s"[RocketchipNastiShimTester] runs ${args.loadmem}")
+
+  setTraceLen(stepSize)
+  assert(traceLen % stepSize == 0)
+  setMemCycles(memCycles)
   loadMem(args.loadmem)
 
   val startTime = System.nanoTime

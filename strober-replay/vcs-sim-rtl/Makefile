@@ -14,4 +14,4 @@ include $(sim_dir)/Makefrag
 simv: simv-$(CONFIG)
 
 clean:
-	rm -rf *.vpd simv* logs
+	rm -rf *.vpd simv* logs DVEfiles
