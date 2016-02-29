@@ -1,7 +1,10 @@
-default: sbt
+default: all
 
-duts = Rocket BOOM
 base_dir = $(abspath .)
+
+CONFIG       ?= DefaultFPGAConfig
+SIM_CONFIG   ?= RocketSimConfig
+NASTI_CONFIG ?= RocketNastiConfig
 
 include $(base_dir)/Makefrag
 
@@ -9,78 +12,94 @@ sbt:
 	$(SBT)
 
 # Tests for rocketchip
-all: $(addsuffix -asm-tests-cpp, $(duts)) $(addsuffix -asm-tests-v, $(duts)) \
-	$(addsuffix -bmarks-tests-cpp, $(duts)) $(addsuffix -bmarks-tests-cpp, $(duts))
+all: 
+	$(SBT) "testOnly $(PROJECT).AllRocketChipTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -asm-tests-cpp, $(duts)): %-asm-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*AsmCppTests"
+asm-tests-cpp:
+	$(SBT) "testOnly $(PROJECT).AsmCppTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -asm-tests-v, $(duts)): %-asm-tests-v:
-	$(SBT) "test-only $(PROJECT).$*AsmVerilogTests"
+asm-tests-v: 
+	$(SBT) "testOnly $(PROJECT).AsmVerilogTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-cpp, $(duts)): %-bmark-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*BmarkCppTests"
+bmark-tests-cpp: 
+	$(SBT) "testOnly $(PROJECT).BmarkCppTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-v, $(duts)): %-bmark-tests-v:
-	$(SBT) "test-only $(PROJECT).$*BmarVerilogTests"
+bmark-tests-v: 
+	$(SBT) "testOnly $(PROJECT).BmarVerilogTests -- -DCONFIG=$(CONFIG)"
 
 # Tests for debugging
-$(addsuffix -asm-tests-cpp-debug, $(duts)): %-asm-tests-cpp-debug:
-	$(SBT) "test-only $(PROJECT).$*AsmCppTestsDebug"
+asm-tests-cpp-debug:
+	$(SBT) "testOnly $(PROJECT).AsmCppTestsDebug -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -asm-tests-v-debug, $(duts)): %-asm-tests-v-debug:
-	$(SBT) "test-only $(PROJECT).$*AsmVerilogTestsDebug"
+asm-tests-v-debug:
+	$(SBT) "testOnly $(PROJECT).AsmVerilogTestsDebug -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-cpp-debug, $(duts)): %-bmark-tests-cpp-debug:
-	$(SBT) "test-only $(PROJECT).$*BmarkCppTestsDebug"
+bmark-tests-cpp-debug: 
+	$(SBT) "testOnly $(PROJECT).BmarkCppTestsDebug -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-v-debug, $(duts)): %-bmark-tests-v-debug:
-	$(SBT) "test-only $(PROJECT).$*BmarkVerilogTestsDebug"
+bmark-tests-v-debug: 
+	$(SBT) "testOnly $(PROJECT).BmarkVerilogTestsDebug -- -DCONFIG=$(CONFIG)"
 
 # RTL simulations
-$(addsuffix -asm-tests-rtl, $(duts)): %-asm-tests-rtl:
-	$(SBT) "test-only $(PROJECT).$*AsmRTLTests"
+asm-tests-rtl: 
+	$(SBT) "testOnly $(PROJECT).AsmRTLTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-rtl, $(duts)): %-bmark-tests-rtl:
-	$(SBT) "test-only $(PROJECT).$*BmarkRTLTests"
+bmark-tests-rtl: 
+	$(SBT) "testOnly $(PROJECT).BmarkRTLTests -- -DCONFIG=$(CONFIG)"
 
 # Gate-level simulations
-$(addsuffix -asm-tests-gl-syn, $(duts)): %-asm-tests-gl-syn:
-	$(SBT) "test-only $(PROJECT).$*AsmSYNTests"
+asm-tests-gl-syn: 
+	$(SBT) "testOnly $(PROJECT).AsmSYNTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-gl-syn, $(duts)): %-bmark-tests-gl-syn:
-	$(SBT) "test-only $(PROJECT).$*BmarkSYNTests"
+bmark-tests-gl-syn: 
+	$(SBT) "testOnly $(PROJECT).BmarkSYNTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -asm-tests-gl-par, $(duts)): %-asm-tests-gl-par:
-	$(SBT) "test-only $(PROJECT).$*AsmPARTests"
+asm-tests-gl-par: 
+	$(SBT) "testOnly $(PROJECT).AsmPARTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -bmark-tests-gl-par, $(duts)): %-bmark-tests-gl-par:
-	$(SBT) "test-only $(PROJECT).$*BmarkPARTests"
+bmark-tests-gl-par: 
+	$(SBT) "testOnly $(PROJECT).BmarkPARTests -- -DCONFIG=$(CONFIG)"
 
 # Tests for strober-chips
-$(addsuffix -sim-asm-tests-cpp, $(duts)): %-sim-asm-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*SimAsmCppTests"
+sim-asm-tests-cpp: 
+	$(SBT) "~;\
+	testOnly $(PROJECT).SimAsmCppTests -- -DCONFIG=$(SIM_CONFIG); \
+	testOnly $(PROJECT).ReplayAsmTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -sim-asm-tests-v, $(duts)): %-sim-asm-tests-v:
-	$(SBT) "test-only $(PROJECT).$*SimAsmVerilogTests"
+sim-asm-tests-v: 
+	$(SBT) "~;\
+	testOnly $(PROJECT).SimAsmVerilogTests -- -DCONFIG=$(SIM_CONFIG); \
+	testOnly $(PROJECT).ReplayAsmTests     -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -sim-bmark-tests-cpp, $(duts)): %-sim-bmark-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*SimBmarkCppTests"
+sim-bmark-tests-cpp:
+	$(SBT) "~;\
+	testOnly $(PROJECT).SimBmarkCppTests -- -DCONFIG=$(SIM_CONFIG);\
+	testOnly $(PROJECT).ReplayBmarkTests -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -sim-bmark-tests-v, $(duts)): %-sim-bmark-tests-v:
-	$(SBT) "test-only $(PROJECT).$*SimBmarkVerilogTests"
+sim-bmark-tests-v:
+	$(SBT) "~;\
+	testOnly $(PROJECT).SimBmarkVerilogTests -- -DCONFIG=$(SIM_CONFIG);\
+	testOnly $(PROJECT).ReplayBmarkTests     -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -nasti-asm-tests-cpp, $(duts)): %-nasti-asm-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*NastiShimAsmCppTests"
+nasti-asm-tests-cpp:
+	$(SBT) "~;\
+	testOnly $(PROJECT).NastiShimAsmCppTests -- -DCONFIG=$(NASTI_CONFIG);\
+	testOnly $(PROJECT).ReplayAsmTests       -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -nasti-asm-tests-v, $(duts)): %-nasti-asm-tests-v:
-	$(SBT) "test-only $(PROJECT).$*NastiShimAsmVerilogTests"
+nasti-asm-tests-v:
+	$(SBT) "~;\
+	testOnly $(PROJECT).NastiShimAsmVerilogTests -- -DCONFIG=$(NASTI_CONFIG);\
+	testOnly $(PROJECT).ReplayAsmTests           -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -nasti-bmark-tests-cpp, $(duts)): %-nasti-bmark-tests-cpp:
-	$(SBT) "test-only $(PROJECT).$*NastiShimBmarkCppTests"
+nasti-bmark-tests-cpp: 
+	$(SBT) "~;\
+	testOnly $(PROJECT).NastiShimBmarkCppTests -- -DCONFIG=$(NASTI_CONFIG);\
+	testOnly $(PROJECT).ReplayBmarkTests       -- -DCONFIG=$(CONFIG)"
 
-$(addsuffix -nasti-bmark-tests-v, $(duts)): %-nasti-bmark-tests-v:
-	$(SBT) "test-only $(PROJECT).$*NastiShimBmarkVerilogTests"
+nasti-bmark-tests-v: 
+	$(SBT) "~;\
+	testOnly $(PROJECT).NastiShimBmarkVerilogTests -- -DCONFIG=$(NASTI_CONFIG);\
+	testOnly $(PROJECT).ReplayBmarkTests           -- -DCONFIG=$(CONFIG)"
 
 clean:
 	rm -rf test-*

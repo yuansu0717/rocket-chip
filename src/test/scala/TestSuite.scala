@@ -1,28 +1,31 @@
 package rocketchip
 
 import Chisel._
-import sys.process.stringSeqToProcess
+import org.scalatest._
 
-abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 6) 
-    extends org.scalatest.FlatSpec with org.scalatest.BeforeAndAfter { 
+case class ElabArgs(b: String = "null", debug: Boolean = false, dir: Option[String] = None) 
+abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fixture.ConfigMapFixture 
+    with prop.TableDrivenPropertyChecks with GivenWhenThen with BeforeAndAfter { 
   import scala.actors.Actor._
+  import matchers.ShouldMatchers._
   import java.io.{File, PrintStream}
+  import sys.process.stringSeqToProcess
 
   private val outDir = new File("test-outs")
   private val logDir = new File("test-logs")
   private val dumpDir = new File("test-dumps")
   private val baseArgs = Array("--W0W", "--targetDir", outDir.getPath.toString)
-  private def compArgs(b: String)  = baseArgs ++ Array("--backend", b,
-    "--genHarness", "--compile", "--noAssert", "--compileInitializationUnoptimized")
-  private def debugArgs(b: String) = compArgs(b) ++ Array("--debug", "--vcd", "--vcdMem")
-  private def testArgs(cmd: String) = baseArgs ++ Array(
-    "--backend", "null", "--testCommand", cmd)
-  private val configName = config.getClass.getName stripPrefix "rocketchip."
+  private def compArgs(config: String, b: String)  = baseArgs ++ 
+    Array("--configInstance", s"rocketchip.${config}", "--backend", b, 
+          "--genHarness", "--compile", "--noAssert", "--compileInitializationUnoptimized")
+  private def debugArgs(config: String, b: String) = compArgs(config, b) ++ 
+    Array("--debug", "--vcd", "--vcdMem")
+  private def testArgs(b: String, cmd: String) = baseArgs ++ Array("--backend", b, "--testCommand", cmd)
 
-  case class TestRun(c: Module, args: RocketChipTestArgs, sample: Option[String] = None)
-  case class TopReplay(c: Top, sample: Seq[strober.Sample], dump: String, log: String) 
-  case object TestFin
-  protected val testers = List.fill(N){ actor { loop { react {
+  private case class TestRun(c: Module, args: RocketChipTestArgs, sample: Option[String] = None)
+  private case class TopReplay(c: Top, sample: Seq[strober.Sample], dump: String, log: String) 
+  private case object TestFin
+  private val testers = List.fill(N){ actor { loop { react {
     case TestRun(c, args, sample) => c match {
       case top: Top => sender ! (try { 
         (new RocketChipTester(top, args)).finish
@@ -49,81 +52,86 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 6)
     case TestFin => exit()
   } } } }
 
-  def elaborate[T <: Module](c: => T, b: String, debug: Boolean, cmd: Option[String]) = {
-    val args = cmd match {
-      case Some(p) => testArgs(p) case None => if (debug) debugArgs(b) else compArgs(b) 
+  private def elaborate[T <: Module](c: => T, config: String, b: String, debug: Boolean, dir: Option[String]) = {
+    val args = dir match {
+      case None if debug => debugArgs(config, b)
+      case None          => compArgs(config, b)
+      case Some(p)       =>
+        val simv = new File(s"${p}/simv-${config}")
+        if (!simv.exists) assert(Seq("make", "-C", p, s"CONFIG=${config}").! == 0)
+        dumpDir.listFiles foreach (_.delete)
+        testArgs(b, simv.getPath.toString)
     }
-    val params = Parameters.root(new Instance(config.topDefinitions,config.knobValues))
-    chiselMain(args, () => Module(c)(params))
+    chiselMain.run(args, () => c)
   }
 
-  def elaborateCpp[T <: Module](c: => T, debug: Boolean=false) = elaborate(c, "c", debug, None)
-
-  def elaborateVerilog[T <: Module](c: => T, debug: Boolean=false) = elaborate(c, "v", debug, None)
-
-  def elaborateSimv[T <: Module](c: => T, dir: String) = {
-    val simv = new java.io.File(s"${dir}/simv-${configName}")
-    if (!simv.exists) assert(Seq("make", "-C", dir, s"CONFIG=${configName}").! == 0)
-    dumpDir.listFiles foreach (_.delete)
-    elaborate(c, "", false, Some(simv.getPath.toString))
-  }
-
-  def runSuites[T <: Module, S <: RocketTestSuite](c: T, suites: Iterable[S], maxcycles: Long = 100000000) {
-    suites foreach { suite =>
-      val dir = suite.dir stripPrefix "$(base_dir)/"
-      val futures = suite.names.zipWithIndex map { case (t, i) =>
-        val name = suite match {
-          case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
-          case s: BenchmarkTestSuite => s"${t}.riscv"
+  def runSuites[T <: Module, S <: RocketTestSuite](
+      c: => T, args: ElabArgs, suites: Iterable[S], maxcycles: Long = 100000000) {
+    property("RocketChip should run the following test suites") { configMap =>
+      val config = configMap("CONFIG").asInstanceOf[String]
+      val dut = elaborate(c, config, args.b, args.debug, args.dir)
+      forAll(Table("RunSuites", suites.toSeq: _*)) { suite =>
+        val dir = suite.dir stripPrefix "$(base_dir)/"
+        val futures = suite.names.zipWithIndex map { case (t, i) =>
+          val name = suite match {
+            case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
+            case s: BenchmarkTestSuite => s"${t}.riscv"
+          }
+          val loadmem = s"${dir}/${name}.hex"
+          val sample = Some(s"${name}.sample")
+          val log = new PrintStream(s"${logDir.getPath}/${dut.getClass.getName}-${name}.log")
+          val vcd = s"${dumpDir}/${dut.getClass.getName}-${name}.vcd"
+          val vpd = s"${dumpDir}/${dut.getClass.getName}-${name}.vpd"
+          val saif = s"${dumpDir}/${dut.getClass.getName}-${name}.saif"
+          val dump = Driver.backend match { 
+            case _: VerilogBackend => Some(vpd)
+            case _: CppBackend     => Some(vcd)
+            case _                 => None
+          }
+          val cmd = Driver.testCommand map (x => 
+            s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${x} +vcdfile=${vcd} +vpdfile=${vpd}" """)
+          val args = new RocketChipTestArgs(loadmem, maxcycles, cmd, Some(log), dump)
+          if (!(new File(loadmem).exists)) assert(Seq("make", "-C", dir, s"${name}.hex").! == 0)
+          name -> (testers(i % N) !! new TestRun(dut, args, sample))
         }
-        val loadmem = s"${dir}/${name}.hex"
-        val sample = Some(s"${name}.sample")
-        val log = new PrintStream(s"${logDir.getPath}/${c.getClass.getName}-${name}.log")
-        val vcd = s"${dumpDir}/${c.getClass.getName}-${name}.vcd"
-        val vpd = s"${dumpDir}/${c.getClass.getName}-${name}.vpd"
-        val saif = s"${dumpDir}/${c.getClass.getName}-${name}.saif"
-        val dump = Driver.backend match { 
-          case _: VerilogBackend => Some(vpd)
-          case _: CppBackend     => Some(vcd)
-          case _                 => None
-        }
-        val cmd = Driver.testCommand map (x => 
-          s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${x} +vcdfile=${vcd} +vpdfile=${vpd}" """)
-        val args = new RocketChipTestArgs(loadmem, maxcycles, cmd, Some(log), dump)
-        if (!(new File(loadmem).exists)) assert(Seq("make", "-C", dir, s"${name}.hex").! == 0)
-        name -> (testers(i % N) !! new TestRun(c, args, sample))
-      }
-      behavior of suite.makeTargetName
-      futures foreach {case (name, f) =>
-        f.inputChannel receive {
-          case pass: Boolean => it should s"pass ${name}" in { assert(pass) }
+        Given(suite.makeTargetName)
+        futures.zipWithIndex foreach {case ((name, f), i) =>
+          f.inputChannel receive {case pass: Boolean =>
+            Then(s"should pass ${name}") 
+            assert(pass)
+          }
         }
       }
     }
   }
 
-  def replaySamples[S <: RocketTestSuite](top: Top, suites: Iterable[S], suffix: String) {
-    suites foreach { suite =>
-      val dir = suite.dir stripPrefix "$(base_dir)/"
-      val futures = suite.names.zipWithIndex map { case (t, i) =>
-        val name = suite match {
-          case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
-          case s: BenchmarkTestSuite => s"${t}.riscv"
+  def replaySamples[S <: RocketTestSuite](c: => Top, args: ElabArgs, suites: Iterable[S]) {
+    property(s"[replay-${args.b}] RocketChip should replay the following test suites") { configMap =>
+      val config = configMap("CONFIG").asInstanceOf[String]
+      val dut = elaborate(c, config, args.b, args.debug, args.dir)
+      forAll(Table("Replay", suites.toSeq:_*)) { suite =>
+        val dir = suite.dir stripPrefix "$(base_dir)/"
+        val futures = suite.names.zipWithIndex map { case (t, i) =>
+          val name = suite match {
+            case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
+            case s: BenchmarkTestSuite => s"${t}.riscv"
+          }
+          val sample = strober.Sample.load(s"${outDir}/${name}.sample")
+          val log = s"${logDir}/replay-${args.b}-${name}.log"
+          val vcd = s"${dumpDir}/replay-${args.b}-${name}.vcd"
+          val vpd = s"${dumpDir}/replay-${args.b}-${name}.vpd"
+          val dump = Driver.backend match { 
+            case _: VerilogBackend => vpd
+            case _: CppBackend     => vcd
+          }
+          name -> (testers(i % N) !! new TopReplay(dut, sample, dump, log))
         }
-        val sample = strober.Sample.load(s"${outDir}/${name}.sample")
-        val log = s"${logDir}/replay-${suffix}-${name}.log"
-        val vcd = s"${dumpDir}/replay-${suffix}-${name}.vcd"
-        val vpd = s"${dumpDir}/replay-${suffix}-${name}.vpd"
-        val dump = Driver.backend match { 
-          case _: VerilogBackend => vpd
-          case _: CppBackend     => vcd
-        }
-        name -> (testers(i % N) !! new TopReplay(top, sample, dump, log))
-      }
-      behavior of s"[Replay] ${suite.makeTargetName} + ${suffix}"
-      futures foreach {case (name, f) =>
-        f.inputChannel receive {
-          case pass: Boolean => it should s"replay sample from ${name}" in { assert(pass) }
+        Given(suite.makeTargetName)
+        futures foreach {case (name, f) =>
+          f.inputChannel receive { case pass: Boolean => 
+            Then(s"should replay sample from ${name}") 
+            assert(pass)
+          }
         }
       }
     }
@@ -140,11 +148,9 @@ abstract class RocketChipTestSuite(config: ChiselConfig, N: Int = 6)
 // Test Templates
 trait RunTests {
   def suites: Iterable[RocketTestSuite]
-  def elaborateCpp[T <: Module](c: => T, debug: Boolean=false): T
-  def elaborateVerilog[T <: Module](c: => T, debug: Boolean=false): T
-  def elaborateSimv[T <: Module](c: => T, dir: String): T
-  def runSuites[T <: Module, S <: RocketTestSuite](c: T, suites: Iterable[S], maxcycles: Long = 100000000): Unit
-  def replaySamples[S <: RocketTestSuite](top: Top, suites: Iterable[S], suffix: String): Unit
+  def runSuites[T <: Module, S <: RocketTestSuite](
+    c: => T, args: ElabArgs, suites: Iterable[S], maxcycles: Long = 100000000): Unit
+  def replaySamples[S <: RocketTestSuite](c: => Top, args: ElabArgs, suites: Iterable[S]): Unit
 }
 trait AsmTests {
   val suites = TestGeneration.asmSuites.values
@@ -153,128 +159,68 @@ trait BmarkTests {
   val suites = TestGeneration.bmarkSuites.values
 }
 trait CppTests extends RunTests {
-  runSuites(elaborateCpp(new Top), suites)
+  runSuites(new Top, new ElabArgs("c"), suites)
 }
 trait VerilogTests extends RunTests {
-  runSuites(elaborateVerilog(new Top), suites)
+  runSuites(new Top, new ElabArgs("v"), suites)
 }
 trait CppTestsDebug extends RunTests {
-  runSuites(elaborateCpp(new Top, true), suites)
+  runSuites(new Top, new ElabArgs("c", true), suites)
 }
 trait VerilogTestsDebug extends RunTests {
-  runSuites(elaborateVerilog(new Top, true), suites)
+  runSuites(new Top, new ElabArgs("v", true), suites)
 }
 trait RTLTests extends RunTests {
   val dir = "strober-replay/vcs-sim-rtl"
-  runSuites(elaborateSimv(new Top, dir), suites)
+  runSuites(new Top, new ElabArgs(dir=Some(dir)), suites)
 }
 trait SYNTests extends RunTests {
   val dir = "strober-replay/vcs-sim-gl-syn"
-  runSuites(elaborateSimv(new Top, dir), suites)
+  runSuites(new Top, new ElabArgs(dir=Some(dir)), suites)
 }
 trait PARTests extends RunTests {
   val dir = "strober-replay/vcs-sim-gl-par"
-  runSuites(elaborateSimv(new Top, dir), suites)
+  runSuites(new Top, new ElabArgs(dir=Some(dir)), suites)
 }
-trait AsmCppTests extends AsmTests with CppTests
-trait AsmVerilogTests extends AsmTests with VerilogTests
-trait AsmCppTestsDebug extends AsmTests with CppTestsDebug
-trait AsmVerilogTestsDebug extends AsmTests with VerilogTestsDebug
-trait AsmRTLTests extends AsmTests with RTLTests
-trait AsmSYNTests extends AsmTests with SYNTests
-trait AsmPARTests extends AsmTests with PARTests
-trait BmarkCppTests extends BmarkTests with CppTests
-trait BmarkVerilogTests extends BmarkTests with VerilogTests
-trait BmarkCppTestsDebug extends BmarkTests with CppTestsDebug
-trait BmarkVerilogTestsDebug extends BmarkTests with VerilogTestsDebug
-trait BmarkRTLTests extends BmarkTests with RTLTests
-trait BmarkSYNTests extends BmarkTests with SYNTests
-trait BmarkPARTests extends BmarkTests with PARTests
+class AsmCppTests extends RocketChipTestSuite() with AsmTests with CppTests
+class AsmVerilogTests extends RocketChipTestSuite() with AsmTests with VerilogTests
+class AsmCppTestsDebug extends RocketChipTestSuite() with AsmTests with CppTestsDebug
+class AsmVerilogTestsDebug extends RocketChipTestSuite() with AsmTests with VerilogTestsDebug
+class AsmRTLTests extends RocketChipTestSuite() with AsmTests with RTLTests
+class AsmSYNTests extends RocketChipTestSuite() with AsmTests with SYNTests
+class AsmPARTests extends RocketChipTestSuite() with AsmTests with PARTests
+class BmarkCppTests extends RocketChipTestSuite() with BmarkTests with CppTests
+class BmarkVerilogTests extends RocketChipTestSuite() with BmarkTests with VerilogTests
+class BmarkCppTestsDebug extends RocketChipTestSuite() with BmarkTests with CppTestsDebug
+class BmarkVerilogTestsDebug extends RocketChipTestSuite() with BmarkTests with VerilogTestsDebug
+class BmarkRTLTests extends RocketChipTestSuite() with BmarkTests with RTLTests
+class BmarkSYNTests extends RocketChipTestSuite() with BmarkTests with SYNTests
+class BmarkPARTests extends RocketChipTestSuite() with BmarkTests with PARTests
 
 trait SimCppTests extends RunTests {
-  runSuites(elaborateCpp(new TopWrapper, true), suites)
+  runSuites(new TopWrapper, new ElabArgs("c", true), suites)
 }
 trait SimVerilogTests extends RunTests {
-  runSuites(elaborateVerilog(new TopWrapper, true), suites)
+  runSuites(new TopWrapper, new ElabArgs("v", true), suites)
 }
 trait NastiShimCppTests extends RunTests {
-  runSuites(elaborateCpp(new NASTIShim, true), suites)
+  runSuites(new NASTIShim, new ElabArgs("c", true), suites)
 }
 trait NastiShimVerilogTests extends RunTests {
-  runSuites(elaborateVerilog(new NASTIShim, true), suites)
+  runSuites(new NASTIShim, new ElabArgs("v", true), suites)
 }
 trait ReplayTests extends RunTests {
-  // replaySamples(elaborateCpp(new Top, true), suites, "cpp")
-  replaySamples(elaborateVerilog(new Top, true), suites, "verilog")
+  // replaySamples(new Top, new ElabArgs("c", true), suites)
+  replaySamples(new Top, new ElabArgs("v", true), suites)
 }
-trait SimAsmCppTests extends AsmTests with SimCppTests with ReplayTests
-trait SimAsmVerilogTests extends AsmTests with SimVerilogTests with ReplayTests
-trait SimBmarkCppTests extends BmarkTests with SimCppTests with ReplayTests
-trait SimBmarkVerilogTests extends BmarkTests with SimVerilogTests with ReplayTests
-trait NastiShimAsmCppTests extends AsmTests with NastiShimCppTests with ReplayTests
-trait NastiShimAsmVerilogTests extends AsmTests with NastiShimVerilogTests with ReplayTests
-trait NastiShimBmarkCppTests extends BmarkTests with NastiShimCppTests with ReplayTests
-trait NastiShimBmarkVerilogTests extends BmarkTests with NastiShimVerilogTests with ReplayTests
+class SimAsmCppTests extends RocketChipTestSuite() with AsmTests with SimCppTests with ReplayTests
+class SimAsmVerilogTests extends RocketChipTestSuite() with AsmTests with SimVerilogTests with ReplayTests
+class SimBmarkCppTests extends RocketChipTestSuite() with BmarkTests with SimCppTests with ReplayTests
+class SimBmarkVerilogTests extends RocketChipTestSuite() with BmarkTests with SimVerilogTests with ReplayTests
+class NastiShimAsmCppTests extends RocketChipTestSuite() with AsmTests with NastiShimCppTests with ReplayTests
+class NastiShimAsmVerilogTests extends RocketChipTestSuite() with AsmTests with NastiShimVerilogTests with ReplayTests
+class NastiShimBmarkCppTests extends RocketChipTestSuite() with BmarkTests with NastiShimCppTests with ReplayTests
+class NastiShimBmarkVerilogTests extends RocketChipTestSuite() with BmarkTests with NastiShimVerilogTests with ReplayTests
 
-// Rocket Tests
-// Change config for different params
-abstract class RocketTestsBase extends RocketChipTestSuite(new DefaultFPGAConfig)
-class RocketAsmCppTests extends RocketTestsBase with AsmCppTests
-class RocketAsmVerilogTests extends RocketTestsBase with AsmVerilogTests
-class RocketAsmCppTestsDebug extends RocketTestsBase with AsmCppTestsDebug
-class RocketAsmVerilogTestsDebug extends RocketTestsBase with AsmVerilogTestsDebug
-class RocketAsmRTLTests extends RocketTestsBase with AsmRTLTests
-class RocketAsmSYNTests extends RocketTestsBase with AsmSYNTests
-class RocketAsmPARTests extends RocketTestsBase with AsmPARTests
-class RocketBmarkCppTests extends RocketTestsBase with BmarkCppTests
-class RocketBmarkVerilogTests extends RocketTestsBase with BmarkVerilogTests
-class RocketBmarkCppTestsDebug extends RocketTestsBase with BmarkCppTestsDebug
-class RocketBmarkVerilogTestsDebug extends RocketTestsBase with BmarkVerilogTestsDebug
-class RocketBmarkRTLTests extends RocketTestsBase with BmarkRTLTests
-class RocketBmarkSYNTests extends RocketTestsBase with BmarkSYNTests
-class RocketBmarkPARTests extends RocketTestsBase with BmarkPARTests
-
-// BOOM Tests
-abstract class BOOMTestsSuite extends RocketChipTestSuite(new BOOMFPGAConfig)
-class BOOMAsmCppTests extends BOOMTestsSuite with AsmCppTests
-class BOOMAsmVerilogTests extends BOOMTestsSuite with AsmVerilogTests
-class BOOMAsmCppTestsDebug extends BOOMTestsSuite with AsmCppTestsDebug
-class BOOMAsmVerilogTestsDebug extends BOOMTestsSuite with AsmVerilogTestsDebug
-class BOOMAsmRTLTests extends BOOMTestsSuite with AsmRTLTests
-class BOOMAsmSYNTests extends BOOMTestsSuite with AsmSYNTests
-class BOOMAsmPARTests extends BOOMTestsSuite with AsmPARTests
-class BOOMBmarkCppTests extends BOOMTestsSuite with BmarkCppTests
-class BOOMBmarkVerilogTests extends BOOMTestsSuite with BmarkVerilogTests
-class BOOMBmarkCppTestsDebug extends BOOMTestsSuite with BmarkCppTestsDebug
-class BOOMBmarkVerilogTestsDebug extends BOOMTestsSuite with BmarkVerilogTestsDebug
-class BOOMBmarkRTLTests extends BOOMTestsSuite with BmarkRTLTests
-class BOOMBmarkSYNTests extends BOOMTestsSuite with BmarkSYNTests
-class BOOMBmarkPARTests extends BOOMTestsSuite with BmarkPARTests
-
-// Rocket SimWrapper Tests
-abstract class RocketSimTestsBase extends RocketChipTestSuite(new RocketSimConfig)
-class RocketSimAsmCppTests extends RocketSimTestsBase with SimAsmCppTests
-class RocketSimAsmVerilogTests extends RocketSimTestsBase with SimAsmVerilogTests
-class RocketSimBmarkCppTests extends RocketSimTestsBase with SimBmarkCppTests
-class RocketSimBmarkVerilogTests extends RocketSimTestsBase with SimBmarkVerilogTests
-
-// Rocket NastiShim Tests
-abstract class RocketNastiShimTestsBase extends RocketChipTestSuite(new RocketNastiConfig)
-class RocketNastiShimAsmCppTests extends RocketNastiShimTestsBase with NastiShimAsmCppTests
-class RocketNastiShimAsmVerilogTests extends RocketNastiShimTestsBase with NastiShimAsmVerilogTests
-class RocketNastiShimBmarkCppTests extends RocketNastiShimTestsBase with NastiShimBmarkCppTests
-class RocketNastiShimBmarkVerilogTests extends RocketNastiShimTestsBase with NastiShimBmarkVerilogTests
-
-// BOOM SimWrapper Tests
-abstract class BOOMSimTestsBase extends RocketChipTestSuite(new BOOMSimConfig)
-class BOOMSimAsmCppTests extends BOOMSimTestsBase with SimAsmCppTests
-class BOOMSimAsmVerilogTests extends BOOMSimTestsBase with SimAsmVerilogTests
-class BOOMSimBmarkCppTests extends BOOMSimTestsBase with SimBmarkCppTests
-class BOOMSimBmarkVerilogTests extends BOOMSimTestsBase with SimBmarkVerilogTests
-
-// BOOM NastiShim Tests
-class BOOMNastiShimTestsBase extends RocketChipTestSuite(new BOOMNastiConfig) 
-class BOOMNastiShimAsmCppTests extends BOOMNastiShimTestsBase with NastiShimAsmCppTests
-class BOOMNastiShimAsmVerilogTests extends BOOMNastiShimTestsBase with NastiShimAsmVerilogTests
-class BOOMNastiShimBmarkCppTests extends BOOMNastiShimTestsBase with NastiShimBmarkCppTests
-class BOOMNastiShimBmarkVerilogTests extends BOOMNastiShimTestsBase with NastiShimBmarkVerilogTests
+class AllRocketChipTests extends Suites(
+  new AsmCppTests, new AsmVerilogTests, new BmarkCppTests, new BmarkVerilogTests)
