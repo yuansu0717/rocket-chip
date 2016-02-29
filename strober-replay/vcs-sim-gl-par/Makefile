@@ -1,12 +1,13 @@
 default: simv
 
-base_dir   = $(abspath ../..)
-tester_dir = $(abspath ..)
-sim_dir    = $(abspath .)
-vlsi_dir   = $(base_dir)/vlsi
-icc_dir    = $(vlsi_dir)/icc-par
-result_dir = $(icc_dir)/current-icc/results
-report_dir = $(icc_dir)/current-icc/reports
+base_dir    = $(abspath ../..)
+tester_dir  = $(abspath ..)
+sim_dir     = $(abspath .)
+strober_dir = $(base_dir)/strober
+vlsi_dir    = $(base_dir)/vlsi
+icc_dir     = $(vlsi_dir)/icc-par
+result_dir  = $(icc_dir)/current-icc/results
+report_dir  = $(icc_dir)/current-icc/reports
 
 CONFIG ?= DefaultFPGAConfig
 

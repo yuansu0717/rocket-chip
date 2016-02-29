@@ -29,4 +29,4 @@ simv-$(CONFIG): $(sim_vsrcs) $(vpi_srcs)
 	$(VCS) $(VCS_OPTS) -o $@ $^
 
 $(MODEL).$(CONFIG).match: $(report_dir)/$(MODEL).fmv_matched_points.rpt
-	$(tester_dir)/translator.py --output $@ --match $<
+	$(strober_dir)/translator.py --output $@ --match $<
