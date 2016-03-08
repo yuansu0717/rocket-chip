@@ -12,3 +12,5 @@ include $(pt_dir)/Makefrag
 
 clean:
 	rm -rf build* current*
+
+.PHONY: clean

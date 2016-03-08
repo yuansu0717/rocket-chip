@@ -67,6 +67,5 @@ $(pt_avg_max_rpt): $(pt_cur_build_dir)/$(pt_reports_dir)/%.power.avg.max.report:
 	cd ..
 
 pt: $(pt_avg_max_rpt)
-pt_time: $(pt_time_max_rpt)
 
-.PHONY: pt pt_time
+.PHONY: pt

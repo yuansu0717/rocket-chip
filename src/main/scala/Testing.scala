@@ -143,46 +143,55 @@ object TestGenerator extends App {
   val gen = () => Class.forName("rocketchip."+args(0)).newInstance().asInstanceOf[Module]
   if (args(1) == "replay") {
     import scala.actors.Actor._
-    // args(2): sample file
-    // args(3): match file
-    // args(4): # of replay instances in parallel
-    val top = chiselMain.run(args drop 5, gen)
-    val logDir = Driver.ensureDir(s"${Driver.targetDir}/logs")
-    val prefix = (new java.io.File(args(2)).getName split '.').head
-    val samples = strober.Sample.load(args(2), 
+    // args(2): config
+    // args(3): target dir
+    // args(4): sample file
+    // args(5): match file
+    // args(6): test command
+    // args(7): # of replay instances in parallel
+    val config  = args(2)
+    val dirName = args(3)
+    val chiselArgs = Array(// "--minimumCompatibility", "3.0",
+      "--W0W", "--backend", "null", "--ConfigInstance", config, "--targetDir", dirName, 
+      "--test", "--noInlineMem", "--noAssert") ++ (args drop 8)
+    val top = chiselMain.run(chiselArgs, gen)
+    val logDir = new java.io.File(s"${dirName}/logs")
+    if (!logDir.exists) logDir.mkdirs
+    val prefix = (new java.io.File(args(4)).getName split '.').head
+    val sample = strober.Sample.load(args(4), 
       new java.io.PrintStream(s"${logDir}/${prefix}-sample.log"))
-    val matchFile = args(3) match { case "none" => None case p => Some(p) }
-    val N = args(4).toInt
+    val matchFile = args(5) match { case "none" => None case f => Some(f) }
+    val testCmd   = args(6) match { case "none" => None case c => Some(c) }
+    val N = args(7).toInt
     case object ReplayFin
     val replays = List.fill(N){ actor { loop { react {
-      case (sample: strober.Sample, cmd: Option[String], log: Option[String]) =>
+      case (sample: strober.Sample, cmd: Option[String], dump: Option[String], log: Option[String]) =>
         sender ! (try {
-          (new RocketChipReplay(top, Seq(sample), matchFile, cmd, log=log)).finish
+          (new RocketChipReplay(top, Seq(sample), matchFile, cmd, dump, log)).finish
         } catch {
           case _: Throwable => false
         })
       case ReplayFin => exit()
     } } } }
-    val futures = samples.zipWithIndex map {case (sample, idx) =>
-      val vcd  = s"${Driver.targetDir}/${prefix}_${idx}_pipe.vcd"
-      val vpd  = s"${Driver.targetDir}/${prefix}_${idx}.vpd"
-      val saif = s"${Driver.targetDir}/${prefix}_${idx}.saif"
+    sample.zipWithIndex map {case (sample, idx) =>
+      val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
+      val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
+      val saif = s"${dirName}/${prefix}_${idx}.saif"
       val log  = s"${logDir}/${prefix}_${idx}.log"
-      val cmd  = Driver.testCommand match {
-        case None => 
-        case Some(p) if matchFile == None =>
-          Some(List(p, s"+vpdfile=${vpd}") mkString " ")
-        case Some(p) =>
+      val (cmd, dump) = testCmd match {
+        case None => (None, Some(vpd))
+        case Some(c) if matchFile == None =>
+          (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
+        case Some(c) =>
           Seq("rm", "-rf", vcd, vpd).!
-          val pipe = List(p, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
+          val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
           Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " ")
       }
-      idx -> (replays(idx % N) !! (sample, cmd, Some(log)))
-    }
-    replays foreach (_ ! ReplayFin)
-    futures map {case (idx ,f) => 
+      idx -> (replays(idx % N) !! (sample, cmd, dump, Some(log)))
+    } map {case (idx ,f) => 
       f.inputChannel receive {case pass: Boolean => idx -> pass}
     } foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
+    replays foreach (_ ! ReplayFin)
   } else {
     chiselMain.run(args.drop(1), gen) 
     TestGeneration.generateMakefrag

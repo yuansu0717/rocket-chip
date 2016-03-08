@@ -63,4 +63,4 @@ driver: $(MODEL)-zynq
 clean:
 	rm -rf $(generated_dir) $(result_dir)
 
-.PHONY: const fpga driver
+.PHONY: strober fpga driver clean

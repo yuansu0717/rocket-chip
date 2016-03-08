@@ -5,8 +5,7 @@ import os
 import os.path
 import re
 import csv
-import threading
-from subprocess import Popen, call
+from subprocess import Popen
 import time
 
 if __name__ == '__main__':
@@ -20,9 +19,6 @@ if __name__ == '__main__':
     for line in f:
       if line[0:8] == "0 cycle:":
         sample_size += 1
-
-  """ launch replays """
-  call(["make", "replay-gl-par", "SAMPLE=" + sample, "N=" + str(job_num)])
 
   """ launch PrimeTime PX """
   for k in range((sample_size+job_num-1)/job_num+1):
@@ -56,7 +52,6 @@ if __name__ == '__main__':
     ([0-9]+\.[0-9]+)                                 # Percent
     """, re.VERBOSE)
 
-  first = True
   for k in range(sample_size):
     path = "pt-pwr/current-pt/reports/" + prefix +"_" + str(k) + ".power.avg.max.report"
     if os.path.exists(path):
@@ -76,12 +71,10 @@ if __name__ == '__main__':
             percent    = pwr_matched.group(6)
             # print module, int_pwr, switch_pwr, leak_pwr, total_pwr, percent
             if module.find("clk_gate") < 0:
-              if first:
+              if not module in sample_pwr:
                 modules.append(module)
                 sample_pwr[module] = list()
               sample_pwr[module].append(total_pwr)
-
-    first = False
     
   """ dump power """
   with open(prefix + "-pwr.csv", "w") as csvfile:
