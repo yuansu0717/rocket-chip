@@ -223,18 +223,18 @@ object TestGenerator extends App with FileSystemUtilities {
     TestBenchGeneration.generateCPPFragment(
       topModuleName, configClassName,
       paramsFromConfig(NMemoryChannels))
-  }
 
-  val pdFile = createOutputFile(s"$topModuleName.$configClassName.prm")
-  pdFile.write(ParameterDump.getDump)
-  pdFile.close
-  val v = createOutputFile(configClassName + ".knb")
-  v.write(world.getKnobs)
-  v.close
-  val d = new java.io.FileOutputStream(Driver.targetDir + "/" + configClassName + ".dtb")
-  d.write(paramsFromConfig(DeviceTree))
-  d.close
-  val w = createOutputFile(configClassName + ".cst")
-  w.write(world.getConstraints)
-  w.close
+    val pdFile = createOutputFile(s"$topModuleName.$configClassName.prm")
+    pdFile.write(ParameterDump.getDump)
+    pdFile.close
+    val v = createOutputFile(configClassName + ".knb")
+    v.write(world.getKnobs)
+    v.close
+    val d = new java.io.FileOutputStream(Driver.targetDir + "/" + configClassName + ".dtb")
+    d.write(paramsFromConfig(DeviceTree))
+    d.close
+    val w = createOutputFile(configClassName + ".cst")
+    w.write(world.getConstraints)
+    w.close
+  }
 }
