@@ -18,15 +18,15 @@ object BuildSettings extends Build {
       "org.scalatest" % "scalatest_2.11" % "2.2.4" % "test")
   )
 
-  lazy val chisel    = project
-  lazy val hardfloat = project.dependsOn(chisel)
-  lazy val junctions = project.dependsOn(chisel)
-  lazy val uncore    = project.dependsOn(junctions)
-  lazy val rocket    = project.dependsOn(hardfloat,uncore)
-  lazy val zscale    = project.dependsOn(rocket)
-  lazy val boom      = project.dependsOn(rocket)
-  lazy val strober   = project.dependsOn(junctions)
-  lazy val rocketchip = (project in file(".")).settings(chipSettings).dependsOn(zscale,boom,strober)
+  lazy val chisel     = project
+  lazy val cde        = project in file("context-dependent-environments")
+  lazy val hardfloat  = project.dependsOn(chisel)
+  lazy val junctions  = project.dependsOn(chisel, cde)
+  lazy val uncore     = project.dependsOn(junctions)
+  lazy val rocket     = project.dependsOn(hardfloat, uncore)
+  lazy val zscale     = project.dependsOn(rocket)
+  lazy val groundtest = project.dependsOn(rocket)
+  lazy val rocketchip = (project in file(".")).settings(chipSettings).dependsOn(zscale, groundtest)
 
   lazy val addons = settingKey[Seq[String]]("list of addons used for this build")
   lazy val htif = settingKey[Unit]("compile TesterHTIF")
@@ -37,7 +37,7 @@ object BuildSettings extends Build {
     addons := {
       val a = sys.env.getOrElse("ROCKETCHIP_ADDONS", "")
       println(s"Using addons: $a")
-      a.split(",")
+      a.split(" ")
     },
     htif := {
       s"make -C src/test/resources BASE_DIR=${baseDirectory.value}" ! 

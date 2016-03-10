@@ -8,7 +8,7 @@ vcs_sim_gl_syn_dir = $(replay_dir)/vcs-sim-gl-syn
 vcs_sim_gl_par_dir = $(replay_dir)/vcs-sim-gl-par
 pt_pwr_dir = $(replay_dir)/pt-pwr
 
-BACKEND ?= null
+BACKEND ?= v
 CONFIG  ?= DefaultFPGAConfig
 
 include $(base_dir)/Makefrag

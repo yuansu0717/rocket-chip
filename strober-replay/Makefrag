@@ -6,13 +6,16 @@ N ?= 1 # num of replay instances
 
 # Build RocketChip
 compile-cpp: $(chisel_srcs) 
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --noIoDebug"
+	cd $(base_dir) && \
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --noIoDebug"
 
 compile-cpp-debug: $(chisel_srcs)
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --debug --vcd --ioDebug"
+	cd $(base_dir) && \
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --debug --vcd --ioDebug"
 
 compile-v: $(chiel_srcs)
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --v --debug --vcd --ioDebug"
+	cd $(base_dir) && \
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --genHarness --debug --vcd --ioDebug"
 
 # Build VCS Simulators
 $(vcs_sim_rtl_dir)/simv-$(CONFIG):
@@ -33,24 +36,25 @@ $(vcs_sim_gl_par_dir)/$(MODEL).$(CONFIG).match:
 
 
 # Replay on Chisel emulator or VCS
-replay: $(SAMPLE)
+$(generated_dir)/$(MODEL).$(CONFIG): compile-v 
+replay: $(SAMPLE) $(generated_dir)/$(MODEL).$(CONFIG)
 	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
-	"run $(MODEL) replay $(CONFIG) $(generated_dir) $< none none $(N)"
+	"run $(PROJECT) $(MODEL) $(CONFIG) replay $(generated_dir) $< none $(word 2, $^) $(N)"
 
 # Replay on VCS RTL Simulation
 replay-rtl: $(SAMPLE) $(vcs_sim_rtl_dir)/simv-$(CONFIG)
 	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
-	"run $(MODEL) replay $(CONFIG) $(vcs_sim_rtl_dir) $< none $(word 2, $^) $(N) --noInlineMem"
+	"run $(PROJECT) $(MODEL) $(CONFIG) replay $(vcs_sim_rtl_dir) $< none $(word 2, $^) $(N) --noInlineMem"
 
 # Replay on Post-Synthesis Simulation
 replay-gl-syn: $(SAMPLE) $(vcs_sim_gl_syn_dir)/$(MODEL).$(CONFIG).match $(vcs_sim_gl_syn_dir)/simv-$(CONFIG)
 	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
-	"run $(MODEL) replay $(CONFIG) $(vcs_sim_gl_syn_dir) $< $(word 2, $^) $(word 3, $^) $(N) --noInlineMem"
+	"run $(PROJECT) $(MODEL) $(CONFIG) replay $(vcs_sim_gl_syn_dir) $< $(word 2, $^) $(word 3, $^) $(N) --noInlineMem"
 
 # Replay on Post-Place-and-Route Simulation
 replay-gl-par: $(SAMPLE) $(vcs_sim_gl_par_dir)/$(MODEL).$(CONFIG).match $(vcs_sim_gl_par_dir)/simv-$(CONFIG)
 	cd $(base_dir) && $(SBT) "project $(PROJECT)" \
-	"run $(MODEL) replay $(CONFIG) $(vcs_sim_gl_par_dir) $< $(word 2, $^) $(word 3, $^) $(N) --noInlineMem"
+	"run $(PROJECT) $(MODEL) $(CONFIG) replay $(vcs_sim_gl_par_dir) $< $(word 2, $^) $(word 3, $^) $(N) --noInlineMem"
 
 # Power Estimation
 pt_prefix ?= $(notdir $(basename $(SAMPLE)))

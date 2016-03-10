@@ -37,3 +37,12 @@
 [submodule "strober-fpga/fpga-zynq"]
 	path = strober-fpga/fpga-zynq
 	url = https://github.com/donggyukim/fpga-zynq.git
+[submodule "context-dependent-environments"]
+	path = context-dependent-environments
+	url = https://github.com/ucb-bar/context-dependent-environments
+[submodule "groundtest"]
+	path = groundtest
+	url = https://github.com/ucb-bar/groundtest.git
+[submodule "torture"]
+	path = torture
+	url = https://github.com/ucb-bar/riscv-torture.git

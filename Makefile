@@ -14,6 +14,14 @@ vcs_sim_rtl_dir = $(base_dir)/strober-replay/vcs-sim-rtl
 vcs_sim_gl_syn_dir = $(base_dir)/strober-replay/vcs-sim-gl-syn
 vcs_sim_gl_par_dir = $(base_dir)/strober-replay/vcs-sim-gl-par
 
+tests        = $(addsuffix -tests,        $(suites))
+tests_debug  = $(addsuffix -tests-debug,  $(suites))
+tests_rtl    = $(addsuffix -tests-rtl,    $(suites))
+tests_gl_syn = $(addsuffix -tests-gl-syn, $(suites))
+tests_gl_par = $(addsuffix -tests-gl-par, $(suites))
+sim_tests    = $(addprefix sim-,   $(addsuffix -tests, $(suites)))
+nasti_tests  = $(addprefix nasti-, $(addsuffix -tests, $(suites)))
+
 sbt:
 	$(SBT)
 
@@ -25,37 +33,37 @@ all:
 	testOnly $(PROJECT).RocketChipTests -- -DCONFIG=$(CONFIG) -DBACKEND=v -DSUITES=asm -DDEBUG=false;\
 	testOnly $(PROJECT).RocketChipTests -- -DCONFIG=$(CONFIG) -DBACKEND=v -DSUITES=bmark -DDEBUG=false"
 
-$(addsuffix -tests, $(suites)): %-tests:
+$(tests): %-tests:
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=false"
 
 # Tests for debugging
-$(addsuffix -tests-debug, $(suites)): %-tests-debug:
+$(tests_debug): %-tests-debug::
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true"
 
 # RTL simulations
-$(addsuffix -tests-rtl, $(suites)): %-tests-rtl:
+$(tests_rtl): %-tests-rtl::
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_rtl_dir)"
 
 # Gate-level simulations
-$(addsuffix -tests-gl-syn, $(suites)): %-tests-gl-syn:
+$(tests_gl_syn): %-tests-gl-syn::
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_gl_syn_dir)"
 
-$(addsuffix -tests-gl-par, $(suites)): %-tests-gl-par:
+$(tests_gl_par): %-tests-gl-par::
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_gl_par_dir)"
 
 # Tests for strober-chips
-$(addprefix sim-, $(addsuffix -tests, $(suites))): sim-%-tests:
+$(sim_tests): sim-%-tests:
 	$(SBT) ";\
 	testOnly $(PROJECT).SimTests -- \
 	-DCONFIG=$(SIM_CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true; \
 	testOnly $(PROJECT).ReplayTests -- -DCONFIG=$(CONFIG) -DSUITES=$*"
 
-$(addprefix nasti-, $(addsuffix -tests, $(suites))): nasti-%-tests:
+$(nasti_tests): nasti-%-tests:
 	$(SBT) ";\
 	testOnly $(PROJECT).NastiShimTests -- \
 	-DCONFIG=$(NASTI_CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true; \
@@ -63,3 +71,8 @@ $(addprefix nasti-, $(addsuffix -tests, $(suites))): nasti-%-tests:
 
 clean:
 	rm -rf test-*
+
+.PHONY: all clean
+.PHONY: $(tests) $(tests_debug) 
+.PHONY: $(tests_rtl) $(tests_gl_syn) $(tests_gl_par) 
+.PHONY: $(sim_tests) $(nasti_tests)
