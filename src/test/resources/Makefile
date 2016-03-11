@@ -6,8 +6,10 @@ java_dir  := $(BASE_DIR)/src/test/java
 rsrc_dir  := $(BASE_DIR)/src/test/resources
 gen_dir   := $(rsrc_dir)/generated
 htif_obj  := $(addprefix $(gen_dir)/, $(addsuffix .o, $(htif) $(wrapper)))
-fesvr_obj := $(addprefix $(gen_dir)/, $(addsuffix .o, htif htif_pthread context memif syscall device packet))
+fesvr_obj := $(addprefix $(gen_dir)/build-fesvr/, \
+	$(addsuffix .o, htif htif_pthread context memif elfloader syscall device packet))
 fesvr_dir := $(BASE_DIR)/riscv-tools/riscv-fesvr
+pk_dir    := $(BASE_DIR)/riscv-tools/riscv-pk
 
 SWIG      ?= swig
 SWIGFLAGS := -c++ -java -includeall -package htif -outdir $(java_dir)
@@ -21,16 +23,25 @@ $(htif_obj): $(gen_dir)/%.o: $(rsrc_dir)/%.cc
 	mkdir -p $(gen_dir)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(gen_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(fesvr_dir)/fesvr/*.h)
-	mkdir -p $(gen_dir)
-	cd $(gen_dir) && $(fesvr_dir)/configure --prefix=$(RISCV) && make
+$(gen_dir)/build-fesvr/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(fesvr_dir)/fesvr/*.h)
+	mkdir -p $(gen_dir)/build-fesvr
+	cd $(gen_dir)/build-fesvr && $(fesvr_dir)/configure --prefix=$(RISCV) && $(MAKE)
 
-$(fesvr_obj): $(gen_dir)/libfesvr.so
+$(fesvr_obj): $(gen_dir)/build-fesvr/libfesvr.so
 
 $(rsrc_dir)/libhtif.so: $(htif_obj) $(fesvr_obj)
 	$(CXX) $(LDFLAGS) -shared -o $@ $^
 
-all: $(rsrc_dir)/libhtif.so
+host = riscv64-unknown-elf
+$(rsrc_dir)/pk:
+	mkdir -p $(gen_dir)/build-pk
+	cd $(gen_dir)/build-pk && CC= CXX= $(pk_dir)/configure --prefix=$(RISCV)/$(host) --host=$(host) && $(MAKE)
+	cp $(gen_dir)/build-pk/pk $(rsrc_dir)
+
+%.hex: %
+	elf2hex 16 32768 $< > $@
+
+all: $(rsrc_dir)/libhtif.so $(rsrc_dir)/pk.hex
 
 clean:
-	rm -rf generated *_wrap.cc libhtif.so 
+	rm -rf generated *_wrap.cc libhtif.so pk* ../java/* 

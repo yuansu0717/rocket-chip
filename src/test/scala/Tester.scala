@@ -147,7 +147,7 @@ trait RocketTests extends AdvTests {
 }
 
 case class RocketChipTestArgs(
-  loadmem: String, 
+  loadmem: Option[String], 
   maxcycles: Long,
   dumpFile: Option[String] = None,
   logFile: Option[String] = None,
@@ -169,7 +169,7 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
     (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
   val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
                 if (args.verbose) Some(log) else None, c.mifDataBeats, c.io.mem.resp.bits.data.needWidth/8)
-  val htif = new TesterHTIF(0, args.htif)
+  val htif = new TesterHTIF(args.htif.size, args.htif)
   val htifHandler = new HTIFHandler(c, htif) 
 
   preprocessors += htifHandler
@@ -181,7 +181,10 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
 
   if (args.verbose) addObserver(new Observer(file=log))
 
-  mem loadMem args.loadmem
+  args.loadmem match {
+    case None =>
+    case Some(f) => mem loadMem f
+  }
   if (!run(c, htif, args.maxcycles, Some(log))) fail
 }
 
@@ -197,7 +200,7 @@ class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: Rocke
     (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
   val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
               if (args.verbose) Some(log) else None, top.mifDataBeats, top.io.mem.resp.bits.data.needWidth/8)
-  val htif = new TesterHTIF(0, args.htif)
+  val htif = new TesterHTIF(args.htif.size, args.htif)
   val htifHandler = new HTIFHandler(top, htif) 
 
   preprocessors += mem
@@ -207,9 +210,13 @@ class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: Rocke
   dataHandler.process()
   respHandler.process()
 
-  println(s"[RocketchipSimTester] runs ${args.loadmem}")
 
-  mem loadMem args.loadmem
+  args.loadmem match {
+    case None =>
+    case Some(f) => 
+      println(s"[RocketchipSimTester] runs ${f}")
+      mem loadMem f
+  }
   setTraceLen(7)
   if (!run(top, htif, args.maxcycles, Some(log))) fail
 }
@@ -220,18 +227,21 @@ class RocketChipNastiShimTester(c: NastiShim, sampleFile: Option[String],
     extends strober.NastiShimTester(c, new strober.StroberTestArgs(
       sampleFile, args.dumpFile, args.logFile, args.testCmd, args.verbose)) with RocketTests {
   val top = c.sim.target
-  val htif = new TesterHTIF(0, args.htif)
+  val htif = new TesterHTIF(args.htif.size, args.htif)
   val htif_bytes = top.io.host.in.bits.needWidth/8
   var htif_in_valid = false
   val htif_in_bits  = Array.fill(htif_bytes)(0.toByte)
   val htif_out_bits = Array.fill(htif_bytes)(0.toByte)
 
-  println(s"[RocketchipNastiShimTester] runs ${args.loadmem}")
-
   setTraceLen(stepSize)
   assert(traceLen % stepSize == 0)
   setMemCycles(memCycles)
-  loadMem(args.loadmem)
+  args.loadmem match {
+    case None =>
+    case Some(f) => 
+      println(s"[RocketchipNastiShimTester] runs ${f}")
+      loadMem(f)
+  }
 
   val startTime = System.nanoTime
   do {
