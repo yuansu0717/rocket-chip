@@ -44,6 +44,9 @@ class BOOMCPPConfig extends  Config(new WithAllBooms ++ new DefaultBOOMConfig ++
 
 //class HeterogenousBoomConfig extends Config(new WithBoomAndRocketAlternating ++ new BOOMFPGAConfig)
 
+class BOOMStroberConfig extends Config(new WithNoBoomCounters ++ new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultFPGAConfig)
+class BOOMSmallStroberConfig extends Config(new WithNoBoomCounters ++ new WithSmallBOOMs ++ new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultFPGAConfig)
+
 // Strober
 class SimConfig extends Config(
   (pname,site,here) => pname match {
@@ -72,8 +75,9 @@ class NastiConfig extends Config(
   }
 )
 
-// Strober
 class RocketSimConfig extends Config(new DefaultFPGAConfig ++ new SimConfig)
 class RocketNastiConfig extends Config(new NastiConfig ++ new RocketSimConfig)
-class BOOMSimConfig extends Config(new BOOMFPGAConfig ++ new SimConfig)
+class BOOMSimConfig extends Config(new BOOMStroberConfig ++ new SimConfig)
 class BOOMNastiConfig extends Config(new NastiConfig ++ new BOOMSimConfig)
+class BOOMSmallSimConfig extends Config(new BOOMSmallStroberConfig ++ new SimConfig)
+class BOOMSmallNastiConfig extends Config(new NastiConfig ++ new BOOMSmallSimConfig)
