@@ -38,6 +38,7 @@ class SmallBOOMConfig  extends Config(new WithSmallBOOMs  ++ new WithAllBooms ++
 class MediumBOOMConfig extends Config(new WithMediumBOOMs ++ new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultL2Config)
 class MegaBOOMConfig   extends Config(new WithMegaBOOMs   ++ new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultL2Config)
 
+class BOOMConfig extends Config(new WithMediumBOOMs ++ new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultL2Config)
 class BOOMVLSIConfig extends Config(new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultVLSIConfig ++ new WithNoBoomCounters)
 class BOOMFPGAConfig extends Config(new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultFPGAConfig)
 class BOOMCPPConfig extends  Config(new WithAllBooms ++ new DefaultBOOMConfig ++ new DefaultCPPConfig)
@@ -77,6 +78,9 @@ class NastiConfig extends Config(
 
 class RocketSimConfig extends Config(new DefaultFPGAConfig ++ new SimConfig)
 class RocketNastiConfig extends Config(new NastiConfig ++ new RocketSimConfig)
+class RocketL2SimConfig extends Config(new DefaultL2FPGAConfig ++ new SimConfig)
+class RocketL2NastiConfig extends Config(new NastiConfig ++ new RocketL2SimConfig)
+
 class BOOMSimConfig extends Config(new BOOMStroberConfig ++ new SimConfig)
 class BOOMNastiConfig extends Config(new NastiConfig ++ new BOOMSimConfig)
 class BOOMSmallSimConfig extends Config(new BOOMSmallStroberConfig ++ new SimConfig)

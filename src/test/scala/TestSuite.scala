@@ -82,7 +82,7 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
       val dut = elaborate(gen, config, backend, debug, cmdDir)
       forAll(Table("RunSuites", suites.toSeq: _*)) { suite =>
         Given(suite.makeTargetName)
-        val dir = suite.dir stripPrefix "$(base_dir)/"
+        val dir = s"""riscv-tools/${suite.dir stripPrefix "$(RISCV)/riscv64-unknown-elf/share/"}"""
         suite.names.zipWithIndex map { case (t, i) =>
           val name = suite match {
             case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
