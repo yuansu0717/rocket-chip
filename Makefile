@@ -19,8 +19,9 @@ tests_debug  = $(addsuffix -tests-debug,  $(suites))
 tests_rtl    = $(addsuffix -tests-rtl,    $(suites))
 tests_gl_syn = $(addsuffix -tests-gl-syn, $(suites))
 tests_gl_par = $(addsuffix -tests-gl-par, $(suites))
-sim_tests    = $(addprefix sim-,   $(addsuffix -tests, $(suites)))
-nasti_tests  = $(addprefix nasti-, $(addsuffix -tests, $(suites)))
+sim_tests    = $(addprefix sim-,    $(addsuffix -tests, $(suites)))
+nasti_tests  = $(addprefix nasti-,  $(addsuffix -tests, $(suites)))
+replay_tests = $(addprefix replay-, $(addsuffix -tests, $(suites)))
 
 sbt:
 	$(SBT)
@@ -38,7 +39,7 @@ $(tests): %-tests:
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=false"
 
 # Tests for debugging
-$(tests_debug): %-tests-debug::
+$(tests_debug): %-tests-debug:
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true"
 
@@ -69,6 +70,8 @@ $(nasti_tests): nasti-%-tests:
 	-DCONFIG=$(NASTI_CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true; \
 	testOnly $(PROJECT).ReplayTests -- -DCONFIG=$(CONFIG) -DSUITES=$*"
 
+$(replay_tests): replay-%-tests:
+	$(SBT) "testOnly $(PROJECT).ReplayTests -- -DCONFIG=$(CONFIG) -DSUITES=$*"
 clean:
 	rm -rf test-*
 

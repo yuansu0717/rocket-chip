@@ -258,6 +258,7 @@ object TestGenerator extends App with FileSystemUtilities {
       f.inputChannel receive {case pass: Boolean => idx -> pass}
     } foreach {case (idx, pass) => if (!pass) println(s"*** SAMPLE #${idx} FAILED ***")}
     replays foreach (_ ! ReplayFin)
+    Tester.close
   } else { 
     chiselMain.run(args.drop(3), gen)
     //Driver.elaborate(gen, configName = configClassName)

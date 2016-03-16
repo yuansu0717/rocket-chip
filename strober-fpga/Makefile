@@ -25,12 +25,12 @@ $(generated_dir)/$(TARGET)-const.h: $(chisel_srcs)
         fi
 	mkdir -p $(result_dir)
 	cd $(generated_dir) ; cp $(TARGET).map $(TARGET).chain $(result_dir)
-	cd $(generated_dir) ; mv $(TARGET)$(MODEL).$(CONFIG).v $(TARGET)$(MODEL).v
 
 strober: $(generated_dir)/$(TARGET)-const.h
 	
 fpga: $(generated_dir)/$(TARGET)-const.h
-	cd $(board_dir); make clean; time make $(bitstream) DESIGN=$(TARGET); cp $(bitstream) $(result_dir)
+	cd $(board_dir); make clean; time make $(bitstream) DESIGN=$(TARGET) CONFIG=$(CONFIG); \
+	cp $(bitstream) $(result_dir)
 	cp $(board_dir)/fpga-images-$(board)/boot_image/rocketchip_wrapper.bit $(result_dir)/strober_wrapper.bit 
 
 # Compile driver

@@ -159,6 +159,7 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
 
   after {
     testers foreach (_ ! TestFin)
+    Tester.close
   }
 }
 
