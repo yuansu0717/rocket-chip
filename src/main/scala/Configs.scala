@@ -166,10 +166,10 @@ class DefaultConfig extends ChiselConfig (
     case "NTILES" => 1
     case "NBANKS" => 1
     case "L1D_MSHRS" => 2
-    case "L1D_SETS" => 256
+    case "L1D_SETS" => 64
     case "L1D_WAYS" => 4
-    case "L1I_SETS" => 256
-    case "L1I_WAYS" => 2
+    case "L1I_SETS" => 64
+    case "L1I_WAYS" => 4
   }
 )
 class DefaultVLSIConfig extends DefaultConfig
