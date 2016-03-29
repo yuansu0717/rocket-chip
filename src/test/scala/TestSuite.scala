@@ -36,7 +36,7 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
       } catch { 
         case _: Throwable => false 
       })
-      case top: NASTIShim => sender ! (try { 
+      case top: NastiShim => sender ! (try { 
         (new RocketChipNastiShimTester(top, args, sample)).finish
       } catch { 
         case _: Throwable => false 
@@ -155,7 +155,7 @@ class SimTests extends RocketChipTestSuite {
 }
 
 class NastiShimTests extends RocketChipTestSuite {
-  runSuites(new NASTIShim)
+  runSuites(new NastiShim)
 }
 
 class ReplayTests extends RocketChipTestSuite {

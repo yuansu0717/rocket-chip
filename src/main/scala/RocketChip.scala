@@ -293,4 +293,4 @@ class TopWrapper extends strober.SimWrapper(new Top) {
   // MemIO annotation
   strober.SimMemIO(target.io.mem)
 }
-class NASTIShim extends strober.NASTIShim(new TopWrapper)
+class NastiShim extends strober.NastiShim(new TopWrapper)

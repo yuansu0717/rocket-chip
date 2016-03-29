@@ -5,8 +5,10 @@ fpga_dir      = $(abspath .)
 result_dir    = $(fpga_dir)/results
 generated_dir = $(fpga_dir)/generated-src
 
-BACKEND ?= fpga
+MODEL := NastiShim
+TARGET := Top
 CONFIG ?= RocketNastiConfig
+BACKEND ?= fpga
 
 include $(base_dir)/Makefrag
 
@@ -16,19 +18,19 @@ memgen    := $(base_dir)/fsim/fpga_mem_gen
 board_dir := $(fpga_dir)/fpga-zynq/$(board)
 bitstream := fpga-images-$(board)/boot.bin
 
-$(generated_dir)/$(MODEL)-const.h: $(chisel_srcs)
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run NASTIShim $(CHISEL_ARGS) --configDump --noInlineMem"
-	if [ -a $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).conf ]; then \
-          $(memgen) $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).conf >> $(generated_dir)/$(MODEL)NASTIShim.$(CONFIG).v; \
+$(generated_dir)/$(TARGET)-const.h: $(chisel_srcs)
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --configDump --noInlineMem"
+	if [ -a $(generated_dir)/$(TARGET)$(MODEL).$(CONFIG).conf ]; then \
+          $(memgen) $(generated_dir)/$(TARGET)$(MODEL).$(CONFIG).conf >> $(generated_dir)/$(TARGET)$(MODEL).$(CONFIG).v; \
         fi
 	mkdir -p $(result_dir)
-	cd $(generated_dir) ; cp $(MODEL).map $(MODEL).chain $(result_dir)
-	cd $(generated_dir) ; mv $(MODEL)NASTIShim.$(CONFIG).v $(MODEL)NASTIShim.v
+	cd $(generated_dir) ; cp $(TARGET).map $(TARGET).chain $(result_dir)
 
-strober: $(generated_dir)/$(MODEL)-const.h
+$(TARGET)-strober: $(generated_dir)/$(TARGET)-const.h
 	
-fpga: $(generated_dir)/$(MODEL)-const.h
-	cd $(board_dir); make clean; time make $(bitstream) DESIGN=$(MODEL); cp $(bitstream) $(result_dir)
+fpga: $(generated_dir)/$(TARGET)-const.h
+	cd $(board_dir); $(MAKE) clean; time $(MAKE) $(bitstream) DESIGN=$(TARGET) CONFIG=$(CONFIG); \
+	cp $(bitstream) $(result_dir)
 	cp $(board_dir)/fpga-images-$(board)/boot_image/rocketchip_wrapper.bit $(result_dir)/strober_wrapper.bit 
 
 # Compile driver
@@ -39,7 +41,7 @@ driver_src  := $(wildcard $(driver_dir)/*.cc)
 driver_obj  := $(addprefix $(generated_dir)/, $(notdir $(patsubst %.cc, %.o, $(driver_src))))
 driver_host := arm-xilinx-linux-gnueabi
 CXX         := $(driver_host)-g++ 
-CXXFLAGS    := $(CXXFLAGS) -std=c++11 -Wall -I$(driver_dir) -include$(generated_dir)/$(MODEL)-const.h
+CXXFLAGS    := $(CXXFLAGS) -std=c++11 -Wall -I$(driver_dir) -include$(generated_dir)/$(TARGET)-const.h
 LDFLAGS     := $(LDFLAGS) -Wl,-rpath,/usr/local/lib -L$(generated_dir) -lfesvr -lpthread
 
 $(generated_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(fesvr_dir)/fesvr/*.h)
@@ -49,16 +51,16 @@ $(generated_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(f
 $(result_dir)/libfesvr.so: $(generated_dir)/libfesvr.so
 	cp $(generated_dir)/libfesvr.so $@
 
-$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(generated_dir)/$(MODEL)-const.h
+$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(generated_dir)/$(TARGET)-const.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $< 
 
-$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(generated_dir)/$(MODEL)-const.h
+$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(generated_dir)/$(TARGET)-const.h
 	$(CXX) $(CXXFLAGS) -c -I$(csrc_dir) -I$(RISCV)/include -o $@ $<
 
-$(MODEL)-zynq: $(driver_obj) $(generated_dir)/strober.o 
+$(TARGET)-zynq: $(driver_obj) $(generated_dir)/strober.o 
 	$(CXX) $(LDFLAGS) -o$(result_dir)/$(notdir $@) $^
 
-driver: $(MODEL)-zynq
+driver: $(TARGET)-zynq
 
 clean:
 	rm -rf $(generated_dir) $(result_dir)

@@ -213,9 +213,9 @@ class RocketChipSimTester(c: TopWrapper, args: RocketChipTestArgs, sampleFile: O
 }
 
 
-class RocketChipNastiShimTester(c: NASTIShim, args: RocketChipTestArgs, 
+class RocketChipNastiShimTester(c: NastiShim, args: RocketChipTestArgs, 
     sampleFile: Option[String] = None, stepSize: Int = 128, memCycles: Int = 12) 
-    extends strober.NASTIShimTester(c, new strober.StroberTesterArgs(
+    extends strober.NastiShimTester(c, new strober.StroberTesterArgs(
       false, true, sampleFile, args.testCmd, args.dumpFile)) with RocketTests {
   val top = c.sim.target
   val htif = new TesterHTIF(0, args.htif)
