@@ -264,25 +264,35 @@ class TopWrapper extends strober.SimWrapper(new Top) {
         case _ =>
       }
       case tile: BOOM.BOOMTile => tile.core.dpath.exe_units foreach {
-        case exe: BOOM.ALUExeUnit if exe.has_fpu =>
-          val fpu = exe.fpu.fpu
-          strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
-          strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
-          strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
-          fpu.children foreach {
-            case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
-              strober.transforms.addRetiming(divSqrt, 27)
-            case _ =>
+        case exe: BOOM.ALUExeUnit =>
+          if (exe.has_fpu) {
+            val fpu = exe.fpu.fpu
+            strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
+            strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
+            strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
+            fpu.children foreach {
+              case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
+                strober.transforms.addRetiming(divSqrt, 27)
+              case _ =>
+            }
           }
-        case exe: BOOM.ALUMemExeUnit if exe.has_fpu =>
-          val fpu = exe.fpu.fpu
-          strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
-          strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
-          strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
-          fpu.children foreach {
-            case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
-              strober.transforms.addRetiming(divSqrt, 27)
-            case _ =>
+          if (exe.has_mul) {
+            strober.transforms.addRetiming(exe.imul.imul, exe.IMUL_STAGES)
+          }
+        case exe: BOOM.ALUMemExeUnit =>
+          if (exe.has_fpu) {
+            val fpu = exe.fpu.fpu
+            strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
+            strober.transforms.addRetiming(fpu.sfma, fpu.sfma.latency)
+            strober.transforms.addRetiming(fpu.dfma, fpu.dfma.latency)
+            fpu.children foreach {
+              case divSqrt: hardfloat.divSqrtRecodedFloat64 => 
+                strober.transforms.addRetiming(divSqrt, 27)
+              case _ =>
+            }
+          }
+          if (exe.has_mul) {
+            strober.transforms.addRetiming(exe.imul.imul, exe.IMUL_STAGES)
           }
         case _ => 
       } 
