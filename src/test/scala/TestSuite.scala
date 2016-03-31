@@ -45,7 +45,7 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
       case _ => sender ! false
     }
     case TopReplay(c, args) => sender ! (try { 
-      (new RocketChipReplay(c, args)).finish
+      (new strober.Replay(c, args)).finish
     } catch { 
       case _: Throwable => false 
     })

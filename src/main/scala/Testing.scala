@@ -176,18 +176,6 @@ object DefaultTestSuites {
     "led", "mbist"))
 }
 
-class RocketChipReplay(c: Top, args: ReplayArgs) extends Replay(c, args) {
-  override def expect(data: Bits, expected: BigInt) = {
-    // Sadly, Design Compiler optimization prunes the registers
-    // directly connected to the tag output, causing output value descrepancy...
-    // Thus, check only when the memory request is valid
-    if (data eq c.io.mem.req_cmd.bits.tag)
-      peek(c.io.mem.req_cmd.valid) == 0 || super.expect(data, expected)
-    else
-      super.expect(data, expected) 
-  }
-} 
-
 object TestGenerator extends App with FileSystemUtilities {
   val projectName = args(0)
   val topModuleName = args(1)
@@ -232,7 +220,7 @@ object TestGenerator extends App with FileSystemUtilities {
     case object ReplayFin
     val replays = List.fill(N){ actor { loop { react {
       case ReplayMsg(dut, args) => sender ! (try {
-        (new RocketChipReplay(dut, args)).finish
+        (new Replay(dut, args)).finish
       } catch {
         case e: Throwable => println(e) ; false
       })

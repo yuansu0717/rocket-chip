@@ -5,20 +5,26 @@ package rocketchip
 import Chisel._
 import Chisel.AdvTester._
 import htif._
-import junctions.{MemReqCmd, MemData, MemResp}
+import junctions._
 import scala.collection.mutable.{Queue => ScalaQueue}
 import java.io.PrintStream
 import java.nio.ByteBuffer
 
 // Memory
-case class TestMemReq(addr: Int, tag: BigInt, rw: Boolean) {
-  override def toString = "[Mem Req] %s addr: %x, tag: %x".format(if (rw) "write" else "read", addr, tag)
+case class TestNastiReadAddr(id: Int, addr: Int, size: Int, len: Int) {
+  override def toString = "[NastiReadAddr] id: %x, addr: %x, size: %x, len: %x".format(id, addr, size, len)
 }
-case class TestMemData(data: BigInt) {
-  override def toString = "[Mem Data] data: %x".format(data)
+case class TestNastiWriteAddr(id: Int, addr: Int, size: Int, len: Int) {
+  override def toString = "[NastiWriteAddr] id: %x, addr: %x, size: %x, len: %x".format(id, addr, size, len)
 }
-case class TestMemResp(data: BigInt, tag: BigInt) {
-  override def toString = "[Mem Data] data: %x, tag: %x".format(data, tag)
+case class TestNastiReadData(id: Int, data: BigInt, last: Boolean) {
+  override def toString = "[NastiReadData] id: %x, data: %x, last: %s".format(id, data, last)
+}
+case class TestNastiWriteData(data: BigInt, last: Boolean) {
+  override def toString = "[NastiWriteData] data: %x, last: %s".format(data, last)
+}
+case class TestNastiWriteResp(id: Int, resp: Int) {
+  override def toString = "[Nasti Write Resp] id: %x, resp: %x".format(id, resp)
 }
 
 abstract class SimMem(word_size: Int = 16, depth: Int = 1 << 20, 
@@ -68,38 +74,26 @@ abstract class SimMem(word_size: Int = 16, depth: Int = 1 << 20,
 }
 
 class FastMem(
-    cmdQ: ScalaQueue[TestMemReq], 
-    dataQ: ScalaQueue[TestMemData], 
-    respQ: ScalaQueue[TestMemResp],
-    log: Option[PrintStream] = None, 
-    data_beats: Int = 1, word_size: Int = 16, depth: Int = 1 << 20)
+    arQ: ScalaQueue[TestNastiReadAddr],  rQ: ScalaQueue[TestNastiReadData], 
+    awQ: ScalaQueue[TestNastiWriteAddr], wQ: ScalaQueue[TestNastiWriteData],
+    bQ: ScalaQueue[TestNastiWriteResp], 
+    log: Option[PrintStream] = None,  word_size: Int = 16, depth: Int = 1 << 20) 
     extends SimMem(word_size, depth, log) {
-  private val line_size = data_beats*word_size
-  private var store_inflight = false
-  private var store_addr = 0
-  private var store_count = 0
-  def process {
-    if (!dataQ.isEmpty && store_inflight) {
-      val addr = store_addr + store_count*word_size
-      val data = dataQ.dequeue.data
-      write(addr >> off, data)
-      store_count = (store_count + 1) % (data_beats)
-      if (store_count == 0) {
-        store_inflight = false
-        cmdQ.dequeue
-      }
-    } else if (!cmdQ.isEmpty && cmdQ.front.rw && !store_inflight) {
-      store_inflight = true
-      store_addr = cmdQ.front.addr*line_size
-    } else if (!cmdQ.isEmpty && !cmdQ.front.rw && !store_inflight) {
-      val cmd  = cmdQ.dequeue
-      val base = cmd.addr*line_size 
-      (0 until data_beats) foreach {i => 
-        val addr = base + i*word_size
-        val resp = new TestMemResp(read(addr >> off), cmd.tag)
-        respQ enqueue resp
-      }
-    }
+  private var aw: Option[TestNastiWriteAddr] = None
+  def process = aw match {
+    case Some(p) if wQ.size > p.len =>
+      assert((1 << p.size) == word_size)
+      (0 to p.len) foreach (i =>
+        write((p.addr >> off) + i, wQ.dequeue.data))
+      bQ enqueue new TestNastiWriteResp(p.id, 0)
+      aw = None
+    case None if !awQ.isEmpty => aw = Some(awQ.dequeue)
+    case None if !arQ.isEmpty =>
+      val ar = arQ.dequeue
+      (0 to ar.len) foreach (i =>
+        rQ enqueue new TestNastiReadData(
+          ar.id, read((ar.addr >> off) + i), i == ar.len))
+    case _ =>
   }
 }
 
@@ -161,29 +155,45 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
     case None    => System.out
     case Some(f) => new PrintStream(f)
   }
-  val cmdHandler = new DecoupledSink(c.io.mem.req_cmd,
-    (cmd: MemReqCmd) => new TestMemReq(peek(cmd.addr).toInt, peek(cmd.tag), peek(cmd.rw) != 0))
-  val dataHandler = new DecoupledSink(c.io.mem.req_data,
-    (data: MemData) => new TestMemData(peek(data.data)))
-  val respHandler = new DecoupledSource(c.io.mem.resp,
-    (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
-  val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
-                if (args.verbose) Some(log) else None, c.mifDataBeats, c.io.mem.resp.bits.data.needWidth/8)
+
   val htif = new TesterHTIF(args.htif.size, args.htif)
   val htifHandler = new HTIFHandler(c, htif) 
-
   preprocessors += htifHandler
-  preprocessors += mem
-  cmdHandler.max_count = 1
-  cmdHandler.process()
-  dataHandler.process()
-  respHandler.process()
+
+  implicit def bigIntToInt(b: BigInt) = b.toInt
+  implicit def bigIntToBoolean(b: BigInt) = if (b == 0) false else true
+  implicit def booleanToBigInt(b: Boolean) = if (b) BigInt(1) else BigInt(0)
+  val mems = c.io.mem map { nasti =>
+    val arHandler = new DecoupledSink(nasti.ar, (ar: NastiReadAddressChannel) =>
+      new TestNastiReadAddr(peek(ar.id), peek(ar.addr), peek(ar.size), peek(ar.len)))
+    val awHandler = new DecoupledSink(nasti.aw, (aw: NastiWriteAddressChannel) =>
+      new TestNastiWriteAddr(peek(aw.id), peek(aw.addr), peek(aw.size), peek(aw.len)))
+    val wHandler = new DecoupledSink(nasti.w, (w: NastiWriteDataChannel) =>
+      new TestNastiWriteData(peek(w.data), peek(w.last)))
+    val rHandler = new DecoupledSource(nasti.r,
+      (r: NastiReadDataChannel, in: TestNastiReadData) =>
+        {reg_poke(r.id, in.id) ; reg_poke(r.data, in.data) ; reg_poke(r.last, in.last)})
+    val bHandler = new DecoupledSource(nasti.b,
+      (b: NastiWriteResponseChannel, in: TestNastiWriteResp) =>
+        {reg_poke(b.id, in.id) ; reg_poke(b.resp, in.resp)})
+    val mem = new FastMem(
+      arHandler.outputs, rHandler.inputs, 
+      awHandler.outputs, wHandler.outputs, bHandler.inputs,
+      if (args.verbose) Some(log) else None, nasti.r.bits.nastiXDataBits/8)
+    preprocessors += mem
+    arHandler.process()
+    awHandler.process()
+    rHandler.process()
+    wHandler.process()
+    bHandler.process()
+    mem
+  }
 
   if (args.verbose) addObserver(new Observer(file=log))
 
   args.loadmem match {
     case None =>
-    case Some(f) => mem loadMem f
+    case Some(f) => mems foreach (_ loadMem f)
   }
   if (!run(c, htif, args.maxcycles, Some(log))) fail
 }
@@ -192,30 +202,44 @@ class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: Rocke
     extends strober.SimWrapperTester(c, new strober.StroberTestArgs(
       sampleFile, args.dumpFile, args.logFile, args.testCmd, args.verbose)) with RocketTests {
   val top = c.target
-  val cmdHandler = new DecoupledSink(top.io.mem.req_cmd,
-    (cmd: MemReqCmd) => new TestMemReq(peek(cmd.addr).toInt, peek(cmd.tag), peek(cmd.rw) != 0))
-  val dataHandler = new DecoupledSink(top.io.mem.req_data,
-    (data: MemData) => new TestMemData(peek(data.data)))
-  val respHandler = new DecoupledSource(top.io.mem.resp,
-    (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
-  val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
-              if (args.verbose) Some(log) else None, top.mifDataBeats, top.io.mem.resp.bits.data.needWidth/8)
   val htif = new TesterHTIF(args.htif.size, args.htif)
   val htifHandler = new HTIFHandler(top, htif) 
-
-  preprocessors += mem
   preprocessors += htifHandler
-  cmdHandler.max_count = 1
-  cmdHandler.process()
-  dataHandler.process()
-  respHandler.process()
 
+  implicit def bigIntToInt(b: BigInt) = b.toInt
+  implicit def bigIntToBoolean(b: BigInt) = if (b == 0) false else true
+  implicit def booleanToBigInt(b: Boolean) = if (b) BigInt(1) else BigInt(0)
+  val mems = top.io.mem map { nasti =>
+    val arHandler = new DecoupledSink(nasti.ar, (ar: NastiReadAddressChannel) =>
+      new TestNastiReadAddr(peek(ar.id), peek(ar.addr), peek(ar.size), peek(ar.len)))
+    val awHandler = new DecoupledSink(nasti.aw, (aw: NastiWriteAddressChannel) =>
+      new TestNastiWriteAddr(peek(aw.id), peek(aw.addr), peek(aw.size), peek(aw.len)))
+    val wHandler = new DecoupledSink(nasti.w, (w: NastiWriteDataChannel) =>
+      new TestNastiWriteData(peek(w.data), peek(w.last)))
+    val rHandler = new DecoupledSource(nasti.r,
+      (r: NastiReadDataChannel, in: TestNastiReadData) =>
+        {reg_poke(r.id, in.id) ; reg_poke(r.data, in.data) ; reg_poke(r.last, in.last)})
+    val bHandler = new DecoupledSource(nasti.b,
+      (b: NastiWriteResponseChannel, in: TestNastiWriteResp) =>
+        {reg_poke(b.id, in.id) ; reg_poke(b.resp, in.resp)})
+    val mem = new FastMem(
+      arHandler.outputs, rHandler.inputs, 
+      awHandler.outputs, wHandler.outputs, bHandler.inputs,
+      if (args.verbose) Some(log) else None, nasti.r.bits.nastiXDataBits/8)
+    preprocessors += mem
+    arHandler.process()
+    awHandler.process()
+    rHandler.process()
+    wHandler.process()
+    bHandler.process()
+    mem
+  }
 
   args.loadmem match {
     case None =>
     case Some(f) => 
       println(s"[RocketchipSimTester] runs ${f}")
-      mem loadMem f
+      mems foreach (_ loadMem f)
   }
   setTraceLen(7)
   if (!run(top, htif, args.maxcycles, Some(log))) fail
@@ -235,7 +259,7 @@ class RocketChipNastiShimTester(c: NastiShim, sampleFile: Option[String],
 
   setTraceLen(stepSize)
   assert(traceLen % stepSize == 0)
-  setMemCycles(memCycles)
+  // setMemCycles(memCycles)
   args.loadmem match {
     case None =>
     case Some(f) => 

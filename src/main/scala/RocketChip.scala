@@ -81,7 +81,7 @@ class BasicTopIO(implicit val p: Parameters) extends ParameterizedBundle()(p)
 }
 
 class TopIO(implicit p: Parameters) extends BasicTopIO()(p) {
-  val mem = new MemIO // Todo: Vec(nMemChannels, new NastiIO)
+  val mem = Vec(nMemChannels, new NastiIO)
 }
 
 object TopUtils {
@@ -124,31 +124,23 @@ class Top(topParams: Parameters) extends Module with HasTopLevelParameters {
   if (p(UseBackupMemoryPort)) { io.mem_backup_ctrl <> uncore.io.mem_backup_ctrl }
   else { uncore.io.mem_backup_ctrl.en := Bool(false) }
 
-  /* TODO:
   io.mem.zip(uncore.io.mem).foreach { case (outer, inner) =>
     TopUtils.connectNasti(outer, inner)
     // Memory cache type should be normal non-cacheable bufferable
     outer.ar.bits.cache := UInt("b0011")
     outer.aw.bits.cache := UInt("b0011")
   }
-  */
-  // TODO: support nasti
-  // MemIO & DRAM Counters
-  val arb = Module(new NastiArbiter(nMemChannels))
-  val conv = Module(new MemIONastiIOConverter(p(CacheBlockOffsetBits))) 
-  arb.io.master.zip(uncore.io.mem).foreach { case (outer, inner) =>
-    TopUtils.connectNasti(outer, inner)
-    // Memory cache type should be normal non-cacheable bufferable
-    outer.ar.bits.cache := UInt("b0011")
-    outer.aw.bits.cache := UInt("b0011")
-  }
-  conv.io.nasti <> arb.io.slave
-  io.mem <> conv.io.mem
+  // DRAM Counters
   if (p(UseDRAMCounters)) {
-    val dramCntr = Module(new DRAMCounters)
-    dramCntr.io.req_cmd.bits  := conv.io.mem.req_cmd.bits
-    dramCntr.io.req_cmd.valid := conv.io.mem.req_cmd.valid
-    dramCntr.io.req_cmd_ready := io.mem.req_cmd.ready
+    io.mem foreach { mem =>
+      val dramCntr = Module(new DRAMCounters)
+      dramCntr.io.ar.bits  := mem.ar.bits.addr
+      dramCntr.io.ar.valid := mem.ar.valid
+      dramCntr.io.ar_ready := mem.ar.ready
+      dramCntr.io.aw.bits  := mem.aw.bits.addr
+      dramCntr.io.aw.valid := mem.aw.valid
+      dramCntr.io.aw_ready := mem.aw.ready
+    }
   }
 }
 
@@ -378,20 +370,26 @@ case object BankNumBits extends Field[Int]
 case object BankBitOffset extends Field[Int]
 case object RowNumBits extends Field[Int]
 case object RowBitOffset extends Field[Int]
-class DRAMCounters(implicit p: Parameters) extends Module {
+class DRAMCounters(implicit p: Parameters) extends NastiModule {
   val io = new Bundle {
-    val req_cmd = Valid(new MemReqCmd).flip
-    val req_cmd_ready = Bool(INPUT)
-    def fire(dummy: Int = 0) = req_cmd.valid && req_cmd_ready
+    val ar = Valid(UInt(width=nastiXAddrBits)).flip
+    val aw = Valid(UInt(width=nastiXAddrBits)).flip
+    val ar_ready = Bool(INPUT)
+    val aw_ready = Bool(INPUT)
+    def fire(dummy: Int = 0) = ar.valid && ar_ready || aw.valid || aw_ready
   }
   val bankNumBits   = p(BankNumBits)
   val bankBitOffset = p(BankBitOffset)
   val rowNumBits    = p(RowNumBits)
   val rowBitOffset  = p(RowBitOffset)
-  val bankNum = io.req_cmd.bits.addr(bankNumBits+bankBitOffset-1, bankBitOffset)
-  val rowNum  = io.req_cmd.bits.addr(rowNumBits+rowBitOffset-1, rowBitOffset)
+  val isWr = io.aw.valid
+  val bankNum = Mux(isWr, 
+    io.aw.bits(bankNumBits+bankBitOffset-1, bankBitOffset),
+    io.ar.bits(bankNumBits+bankBitOffset-1, bankBitOffset))
+  val rowNum  = Mux(isWr,
+    io.aw.bits(rowNumBits+rowBitOffset-1, rowBitOffset),
+    io.ar.bits(rowNumBits+rowBitOffset-1, rowBitOffset))
   val rowNumArray = Reg(Vec.fill(1 << bankNumBits){SInt(width=rowNumBits)})
-  val isWr = io.req_cmd.bits.rw
   val isSameBank = rowNumArray(bankNum) === rowNum
   when(reset) { 
     rowNumArray foreach (_ := SInt(-1))
@@ -448,6 +446,6 @@ class TopWrapper(p: Parameters) extends strober.SimWrapper(new Top(p))(p) {
     case _ =>
   }
   // MemIO annotation
-  strober.SimMemIO(target.io.mem)
+  target.io.mem foreach (strober.SimMemIO(_))
 }
 class NastiShim(p: Parameters) extends strober.NastiShim(new TopWrapper(p))(p)

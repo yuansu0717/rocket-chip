@@ -70,8 +70,7 @@ class NastiConfig extends Config(
       case e: cde.ParameterUndefinedException =>
         throw new scala.MatchError(pname)
     }
-    case CacheBlockSize  => here(CacheBlockBytes)
-    case MemMaxCycles    => 256
+    case MemMaxCycles => 256
     case UseDRAMCounters => true
   }
 )

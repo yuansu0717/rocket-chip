@@ -26,10 +26,10 @@ $(generated_dir)/$(TARGET)-const.h: $(chisel_srcs)
 	mkdir -p $(result_dir)
 	cd $(generated_dir) ; cp $(TARGET).map $(TARGET).chain $(result_dir)
 
-strober: $(generated_dir)/$(TARGET)-const.h
+$(TARGET)-strober: $(generated_dir)/$(TARGET)-const.h
 	
 fpga: $(generated_dir)/$(TARGET)-const.h
-	cd $(board_dir); make clean; time make $(bitstream) DESIGN=$(TARGET) CONFIG=$(CONFIG); \
+	cd $(board_dir); $(MAKE) clean; time $(MAKE) $(bitstream) DESIGN=$(TARGET) CONFIG=$(CONFIG); \
 	cp $(bitstream) $(result_dir)
 	cp $(board_dir)/fpga-images-$(board)/boot_image/rocketchip_wrapper.bit $(result_dir)/strober_wrapper.bit 
 
@@ -46,7 +46,7 @@ LDFLAGS     := $(LDFLAGS) -Wl,-rpath,/usr/local/lib -L$(generated_dir) -lfesvr -
 
 $(generated_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(fesvr_dir)/fesvr/*.h)
 	mkdir -p $(generated_dir) $(result_dir)
-	cd $(generated_dir) && $(fesvr_dir)/configure --host=$(driver_host) && make
+	cd $(generated_dir) && $(fesvr_dir)/configure --host=$(driver_host) && $(MAKE)
 
 $(result_dir)/libfesvr.so: $(generated_dir)/libfesvr.so
 	cp $(generated_dir)/libfesvr.so $@
