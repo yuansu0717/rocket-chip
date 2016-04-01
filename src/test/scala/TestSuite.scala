@@ -65,7 +65,7 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
     chiselMain.run(args, c)
   }
 
-  def runSuites(dutName: String, pk: Boolean = false, maxcycles: Long = 100000000) {
+  def runSuites(dutName: String, elf: Boolean = false, maxcycles: Long = 100000000) {
     property("RocketChip should run the following test suites") { configMap =>
       val backend = configMap("BACKEND").toString
       val config = configMap("CONFIG").toString
@@ -88,22 +88,22 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
             case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
             case s: BenchmarkTestSuite => s"${t}.riscv"
           }
-          val elf = s"${dir}/${name}"
-          val loadmem = if (pk) None else Some(s"${elf}.hex")
+          val elfpath = s"${dir}/${name}"
+          val loadmem = if (elf) None else Some(s"${elfpath}.hex")
           val sample = Some(s"${outDir.getPath}/${name}.sample")
           val log = s"${logDir.getPath}/${dutName}-${name}-${backend}.log"
           val vcd = s"${dumpDir.getPath}/${dutName}-${name}.vcd"
           val vpd = s"${dumpDir.getPath}/${dutName}-${name}.vpd"
           val saif = s"${dumpDir.getPath}/${dutName}-${name}.saif"
           val dump = backend match { case "c" => Some(vcd) case "v" => Some(vpd) case _ => None }
-          val htif = if (pk) Array(s"${rsrcDir.getPath}/pk", elf) else Array[String]()
+          val htif = if (elf) Array(elfpath) else Array[String]()
           val cmd = cmdDir map { dir => 
             val pipe = "${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
             s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${pipe}" """ }
           val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, Some(log), cmd, htif)
           loadmem match {
             case None =>
-              if (!(new File(elf).exists)) assert(Seq("make", "-C", dir, name).! == 0)
+              if (!(new File(elfpath).exists)) assert(Seq("make", "-C", dir, name).! == 0)
             case Some(hex) =>
               if (!(new File(hex).exists)) assert(Seq("make", "-C", dir, s"${name}.hex").! == 0)
           }

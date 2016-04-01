@@ -418,8 +418,8 @@ class TopWrapper(p: Parameters) extends strober.SimWrapper(new Top(p))(p) {
           case _ =>
         }
     }
-    case tile: boom.BOOMTile => tile.core.exe_units foreach {
-      case exe: boom.ALUExeUnit if exe.hasFFlags =>
+    case tile: boom.BOOMTile => tile.core.children foreach {
+      case exe: boom.ALUExeUnit =>
         if (exe.has_fpu) {
           val fpu = exe.fpu.fpu
           strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
@@ -430,7 +430,11 @@ class TopWrapper(p: Parameters) extends strober.SimWrapper(new Top(p))(p) {
           val fdiv = exe.fdivsqrt.divsqrt
           strober.transforms.addRetiming(fdiv, 27)
         }
-      case exe: boom.ALUMemExeUnit if exe.hasFFlags =>
+        if (exe.has_mul) {
+          val imul = exe.imul.imul
+          strober.transforms.addRetiming(imul, exe.IMUL_STAGES)
+        }
+      case exe: boom.ALUMemExeUnit =>
         if (exe.has_fpu) {
           val fpu = exe.fpu.fpu
           strober.transforms.addRetiming(fpu.ifpu, fpu.ifpu.latency)
@@ -440,6 +444,10 @@ class TopWrapper(p: Parameters) extends strober.SimWrapper(new Top(p))(p) {
         if (exe.has_fdiv) {
           val fdiv = exe.fdivsqrt.divsqrt
           strober.transforms.addRetiming(fdiv, 27)
+        }
+        if (exe.has_mul) {
+          val imul = exe.imul.imul
+          strober.transforms.addRetiming(imul, exe.IMUL_STAGES)
         }
       case _ => 
     } 

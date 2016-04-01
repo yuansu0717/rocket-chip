@@ -259,7 +259,7 @@ class RocketChipNastiShimTester(c: NastiShim, sampleFile: Option[String],
 
   setTraceLen(stepSize)
   assert(traceLen % stepSize == 0)
-  // setMemCycles(memCycles)
+  setMemCycles(memCycles)
   args.loadmem match {
     case None =>
     case Some(f) => 
