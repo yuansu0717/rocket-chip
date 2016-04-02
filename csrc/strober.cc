@@ -23,7 +23,7 @@ public:
   int run(size_t step_size, size_t trace_len = TRACE_MAX_LEN) {
     assert(trace_len % step_size == 0);
     set_trace_len(trace_len);
-    set_mem_cycles(100);
+    set_mem_cycles(90);
     size_t host_in_bits_id   = get_in_id("Top.io_host_in_bits");
     size_t host_in_valid_id  = get_in_id("Top.io_host_in_valid");
     size_t host_in_ready_id  = get_out_id("Top.io_host_in_ready");
