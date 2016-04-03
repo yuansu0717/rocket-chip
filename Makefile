@@ -44,16 +44,16 @@ $(tests_debug): %-tests-debug:
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true"
 
 # RTL simulations
-$(tests_rtl): %-tests-rtl::
+$(tests_rtl): %-tests-rtl:
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_rtl_dir)"
 
 # Gate-level simulations
-$(tests_gl_syn): %-tests-gl-syn::
+$(tests_gl_syn): %-tests-gl-syn:
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_gl_syn_dir)"
 
-$(tests_gl_par): %-tests-gl-par::
+$(tests_gl_par): %-tests-gl-par:
 	$(SBT) "testOnly $(PROJECT).RocketChipTests -- \
 	-DCONFIG=$(CONFIG) -DBACKEND=$(BACKEND) -DSUITES=$* -DDEBUG=true -DDIR=$(vcs_sim_gl_par_dir)"
 

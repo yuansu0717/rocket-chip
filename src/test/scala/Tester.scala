@@ -76,8 +76,8 @@ abstract class SimMem(word_size: Int = 16, depth: Int = 1 << 20,
 class FastMem(
     arQ: ScalaQueue[TestNastiReadAddr],  rQ: ScalaQueue[TestNastiReadData], 
     awQ: ScalaQueue[TestNastiWriteAddr], wQ: ScalaQueue[TestNastiWriteData],
-    bQ: ScalaQueue[TestNastiWriteResp], 
-    log: Option[PrintStream] = None,  word_size: Int = 16, depth: Int = 1 << 20) 
+    bQ: ScalaQueue[TestNastiWriteResp], log: Option[PrintStream] = None,
+    word_size: Int = 16, depth: Int = 1 << 20)
     extends SimMem(word_size, depth, log) {
   private var aw: Option[TestNastiWriteAddr] = None
   def process = aw match {
@@ -94,6 +94,39 @@ class FastMem(
         rQ enqueue new TestNastiReadData(
           ar.id, read((ar.addr >> off) + i), i == ar.len))
     case _ =>
+  }
+}
+
+class SlowMem(
+    arQ: ScalaQueue[TestNastiReadAddr],  rQ: ScalaQueue[TestNastiReadData], 
+    awQ: ScalaQueue[TestNastiWriteAddr], wQ: ScalaQueue[TestNastiWriteData],
+    bQ: ScalaQueue[TestNastiWriteResp], log: Option[PrintStream] = None,
+    latency: Int, word_size: Int = 16, depth: Int = 1 << 20)
+    extends SimMem(word_size, depth, log) {
+  require(latency > 0)
+  private var aw: Option[TestNastiWriteAddr] = None
+  private val schedule = Array.fill(latency){ScalaQueue[TestNastiReadData]()}
+  private var cur_cycle = 0
+  def process {
+    aw match {
+      case Some(p) if wQ.size > p.len =>
+        assert((1 << p.size) == word_size)
+        (0 to p.len) foreach (i =>
+          write((p.addr >> off) + i, wQ.dequeue.data))
+        bQ enqueue new TestNastiWriteResp(p.id, 0)
+        aw = None
+      case None if !awQ.isEmpty => aw = Some(awQ.dequeue)
+      case None if !arQ.isEmpty =>
+        val ar = arQ.dequeue
+        (0 to ar.len) foreach (i =>
+          schedule((cur_cycle+latency-1) % latency) enqueue 
+            new TestNastiReadData(ar.id, read((ar.addr >> off) + i), i == ar.len))
+      case _ =>
+    }
+    while (!schedule(cur_cycle).isEmpty) {
+      rQ enqueue schedule(cur_cycle).dequeue
+    }
+    cur_cycle = (cur_cycle + 1) % latency
   }
 }
 
@@ -147,7 +180,7 @@ case class RocketChipTestArgs(
   logFile: Option[String] = None,
   testCmd: Option[String] = Driver.testCommand,
   htif: Array[String] = Array(),
-  verbose: Boolean = true)
+  verbose: Boolean = false)
 
 class RocketChipTester(c: Top, args: RocketChipTestArgs) 
     extends AdvTester(c, testCmd=args.testCmd, dumpFile=args.dumpFile) with RocketTests {
@@ -176,10 +209,10 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
     val bHandler = new DecoupledSource(nasti.b,
       (b: NastiWriteResponseChannel, in: TestNastiWriteResp) =>
         {reg_poke(b.id, in.id) ; reg_poke(b.resp, in.resp)})
-    val mem = new FastMem(
+    val mem = new SlowMem(
       arHandler.outputs, rHandler.inputs, 
       awHandler.outputs, wHandler.outputs, bHandler.inputs,
-      if (args.verbose) Some(log) else None, nasti.r.bits.nastiXDataBits/8)
+      if (args.verbose) Some(log) else None, 90, nasti.r.bits.nastiXDataBits/8)
     preprocessors += mem
     arHandler.process()
     awHandler.process()
@@ -241,7 +274,7 @@ class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: Rocke
       println(s"[RocketchipSimTester] runs ${f}")
       mems foreach (_ loadMem f)
   }
-  setTraceLen(7)
+  setTraceLen(128)
   if (!run(top, htif, args.maxcycles, Some(log))) fail
 }
 

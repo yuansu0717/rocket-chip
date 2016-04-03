@@ -4,7 +4,7 @@ import Chisel._
 import org.scalatest._
 import cde.{Parameters, Config}
 
-abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fixture.ConfigMapFixture 
+abstract class RocketChipTestSuite(N: Int = 4) extends fixture.PropSpec with fixture.ConfigMapFixture 
     with prop.TableDrivenPropertyChecks with GivenWhenThen with BeforeAndAfter { 
   import scala.actors.Actor._
   import matchers.ShouldMatchers._
@@ -91,16 +91,16 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
           val elfpath = s"${dir}/${name}"
           val loadmem = if (elf) None else Some(s"${elfpath}.hex")
           val sample = Some(s"${outDir.getPath}/${name}.sample")
-          val log = s"${logDir.getPath}/${dutName}-${name}-${backend}.log"
+          val log = Some(s"${logDir.getPath}/${dutName}-${name}-${backend}.log")
           val vcd = s"${dumpDir.getPath}/${dutName}-${name}.vcd"
           val vpd = s"${dumpDir.getPath}/${dutName}-${name}.vpd"
           val saif = s"${dumpDir.getPath}/${dutName}-${name}.saif"
           val dump = backend match { case "c" => Some(vcd) case "v" => Some(vpd) case _ => None }
           val htif = if (elf) Array(elfpath) else Array[String]()
           val cmd = cmdDir map { dir => 
-            val pipe = "${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
+            val pipe = s"${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
             s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${pipe}" """ }
-          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, Some(log), cmd, htif)
+          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, log, cmd, htif)
           loadmem match {
             case None =>
               if (!(new File(elfpath).exists)) assert(Seq("make", "-C", dir, name).! == 0)
