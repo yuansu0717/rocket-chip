@@ -7,15 +7,15 @@ N ?= 1 # num of replay instances
 # Build RocketChip
 compile-cpp: $(chisel_srcs) 
 	cd $(base_dir) && \
-	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --noIoDebug"
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --noIoDebug --noAssert"
 
 compile-cpp-debug: $(chisel_srcs)
 	cd $(base_dir) && \
-	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --debug --vcd --ioDebug"
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --c --compile --genHarness --debug --vcd --ioDebug --noAssert"
 
 compile-v: $(chiel_srcs)
 	cd $(base_dir) && \
-	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --genHarness --debug --vcd --ioDebug"
+	$(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --genHarness --debug --vcd --ioDebug --noAssert"
 
 # Build VCS Simulators
 $(vcs_sim_rtl_dir)/simv-$(CONFIG):

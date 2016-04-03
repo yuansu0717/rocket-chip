@@ -51,10 +51,10 @@ $(generated_dir)/libfesvr.so: $(wildcard $(fesvr_dir)/fesvr/*.cc) $(wildcard $(f
 $(result_dir)/libfesvr.so: $(generated_dir)/libfesvr.so
 	cp $(generated_dir)/libfesvr.so $@
 
-$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(generated_dir)/$(TARGET)-const.h
+$(driver_obj): $(generated_dir)/%.o: $(driver_dir)/%.cc $(wildcard $(driver_dir)/*.h) $(generated_dir)/$(TARGET)-const.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $< 
 
-$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(generated_dir)/$(TARGET)-const.h
+$(generated_dir)/strober.o: $(csrc_dir)/strober.cc $(result_dir)/libfesvr.so $(wildcard $(driver_dir)/*.h) $(generated_dir)/$(TARGET)-const.h
 	$(CXX) $(CXXFLAGS) -c -I$(csrc_dir) -I$(RISCV)/include -o $@ $<
 
 $(TARGET)-zynq: $(driver_obj) $(generated_dir)/strober.o 

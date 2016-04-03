@@ -32,16 +32,7 @@ $(fesvr_obj): $(gen_dir)/build-fesvr/libfesvr.so
 $(rsrc_dir)/libhtif.so: $(htif_obj) $(fesvr_obj)
 	$(CXX) $(LDFLAGS) -shared -o $@ $^
 
-host = riscv64-unknown-elf
-$(rsrc_dir)/pk:
-	mkdir -p $(gen_dir)/build-pk
-	cd $(gen_dir)/build-pk && CC= CXX= $(pk_dir)/configure --prefix=$(RISCV)/$(host) --host=$(host) && $(MAKE)
-	cp $(gen_dir)/build-pk/pk $(rsrc_dir)
-
-%.hex: %
-	elf2hex 16 32768 $< > $@
-
-all: $(rsrc_dir)/libhtif.so $(rsrc_dir)/pk.hex
+all: $(rsrc_dir)/libhtif.so
 
 clean:
 	rm -rf generated *_wrap.cc libhtif.so pk* ../java/* 
