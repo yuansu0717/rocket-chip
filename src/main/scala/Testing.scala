@@ -210,7 +210,7 @@ object TestGenerator extends App with FileSystemUtilities {
     val top = chiselMain.run(chiselArgs, gen).asInstanceOf[Top]
     val logDir = new java.io.File(s"${dirName}/logs")
     if (!logDir.exists) logDir.mkdirs
-    val prefix = (new java.io.File(args(5)).getName split '.').head
+    val prefix = (new java.io.File(args(5)).getName split '.').init mkString "."
     val sample = Sample.load(args(5), 
       new java.io.PrintStream(s"${logDir}/${prefix}-sample.log"))
     val matchFile = args(6) match { case "none" => None case f => Some(f) }
