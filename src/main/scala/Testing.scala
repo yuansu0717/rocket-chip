@@ -226,7 +226,7 @@ object TestGenerator extends App with FileSystemUtilities {
       })
       case ReplayFin => exit()
     } } } }
-    sample.zipWithIndex map {case (sample, idx) =>
+    val replayArgs = sample.zipWithIndex map {case (sample, idx) =>
       val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
       val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
       val saif = s"${dirName}/${prefix}_${idx}.saif"
@@ -240,11 +240,19 @@ object TestGenerator extends App with FileSystemUtilities {
           val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
           (Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " "), None)
       }
-      val replayArgs = new ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
-      idx -> (replays(idx % N) !! new ReplayMsg(top, replayArgs))
-    } map {case (idx ,f) => 
-      f.inputChannel receive {case pass: Boolean => idx -> pass}
-    } foreach {case (idx, pass) => if (!pass) println(s"*** SAMPLE #${idx} FAILED ***")}
+      idx -> new ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
+    } 
+    val p = N match {
+      case 1 => replayArgs map {
+        case (idx, arg) => idx -> (new Replay(top, arg)).finish
+      }
+      case _ => replayArgs map {
+        case (idx, arg) => idx -> (replays(idx % N) !! new ReplayMsg(top, arg))
+      } map {
+        case (idx ,f) =>  f.inputChannel receive {case pass: Boolean => idx -> pass}
+      }
+    } 
+    p foreach {case (idx, pass) => if (!pass) println(s"*** SAMPLE #${idx} FAILED ***")}
     replays foreach (_ ! ReplayFin)
     Tester.close
   } else { 
