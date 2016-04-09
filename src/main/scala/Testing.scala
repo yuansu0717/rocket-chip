@@ -111,7 +111,7 @@ object DefaultTestSuites {
   val rv64i = List(rv64ui, rv64si, rv64mi)
 
   val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", Set(
-    "median", "multiply", "qsort", "towers", "vvadd", "mm", "dhrystone", "spmv", "mt-vvadd", "mt-matmul"))
+    /*"median", "multiply", */"qsort", "towers", /*"vvadd", "mm",*/ "dhrystone", "spmv", "mt-vvadd", "mt-matmul"))
 
   val mtBmarks = new BenchmarkTestSuite("mt", "$(base_dir)/riscv-tools/riscv-tests/mt",
     ((0 to 4).map("vvadd"+_) ++ 
@@ -152,8 +152,8 @@ object TestGenerator extends App {
     val config  = args(2)
     val dirName = args(3)
     val chiselArgs = Array(// "--minimumCompatibility", "3.0",
-      "--W0W", "--backend", "null", "--ConfigInstance", config, "--targetDir", dirName, 
-      "--test", "--noInlineMem", "--noAssert") ++ (args drop 8)
+      "--W0W", "--backend", "null", "--configInstance", s"rocketchip.${config}", 
+      "--targetDir", dirName, "--test", "--noInlineMem", "--noAssert") ++ (args drop 8)
     val top = chiselMain.run(chiselArgs, gen)
     val logDir = new java.io.File(s"${dirName}/logs")
     if (!logDir.exists) logDir.mkdirs
