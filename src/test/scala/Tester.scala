@@ -99,6 +99,45 @@ class FastMem(cmdQ: ScalaQueue[TestMemReq], dataQ: ScalaQueue[TestMemData], resp
   }
 }
 
+class SlowMem(cmdQ: ScalaQueue[TestMemReq], dataQ: ScalaQueue[TestMemData], respQ: ScalaQueue[TestMemResp],
+    latency: Int = 100, data_beats: Int = 1, word_size: Int = 16, depth: Int = 1 << 20, 
+    log: Option[PrintStream] = None) extends SimMem(word_size, depth, log) {
+  require(latency > 0)
+  private val line_size = data_beats*word_size
+  private var store_inflight = false
+  private var store_addr = 0
+  private var store_count = 0
+  private var cur_cycle = 0
+  private val schedule = Array.fill(latency){ScalaQueue[TestMemResp]()}
+  def process {
+    if (!dataQ.isEmpty && store_inflight) {
+      val addr = store_addr + store_count*word_size
+      val data = dataQ.dequeue.data
+      write(addr >> off, data)
+      store_count = (store_count + 1) % (data_beats)
+      if (store_count == 0) {
+        store_inflight = false
+        cmdQ.dequeue
+      }
+    } else if (!cmdQ.isEmpty && cmdQ.front.rw && !store_inflight) {
+      store_inflight = true
+      store_addr = cmdQ.front.addr*line_size
+    } else if (!cmdQ.isEmpty && !cmdQ.front.rw && !store_inflight) {
+      val cmd  = cmdQ.dequeue
+      val base = cmd.addr*line_size 
+      (0 until data_beats) foreach {i => 
+        val addr = base + i*word_size
+        val resp = new TestMemResp(read(addr >> off), cmd.tag)
+        schedule((cur_cycle+latency-1) % latency) enqueue resp
+      }
+    }
+    while (!schedule(cur_cycle).isEmpty) {
+      respQ enqueue schedule(cur_cycle).dequeue
+    }
+    cur_cycle = (cur_cycle + 1) % latency
+  }
+}
+
 trait RocketTests extends AdvTests {
   System.loadLibrary("htif")
   class HTIFHandler(top: Top, htif: TesterHTIF) extends Processable {
@@ -143,22 +182,28 @@ trait RocketTests extends AdvTests {
 }
 
 case class RocketChipTestArgs(
-  loadmem: String, maxcycles: Long,
-  testCmd: Option[String] = Driver.testCommand,
-  log: Option[PrintStream] = None,
+  loadmem: Option[String], 
+  maxcycles: Long,
   dumpFile: Option[String] = None,
-  htif: Array[String] = Array())
+  logFile: Option[String] = None,
+  testCmd: Option[String] = Driver.testCommand,
+  htif: Array[String] = Array(),
+  verbose: Boolean = false)
 
 class RocketChipTester(c: Top, args: RocketChipTestArgs) 
     extends AdvTester(c, testCmd=args.testCmd, dumpFile=args.dumpFile) with RocketTests {
+  val log = args.logFile match {
+    case None    => System.out
+    case Some(f) => new PrintStream(f)
+  }
   val cmdHandler = new DecoupledSink(c.io.mem.req_cmd,
     (cmd: MemReqCmd) => new TestMemReq(peek(cmd.addr).toInt, peek(cmd.tag), peek(cmd.rw) != 0))
   val dataHandler = new DecoupledSink(c.io.mem.req_data,
     (data: MemData) => new TestMemData(peek(data.data)))
   val respHandler = new DecoupledSource(c.io.mem.resp,
     (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
-  val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
-                        c.mifDataBeats, c.io.mem.resp.bits.data.needWidth/8, log=args.log)
+  val mem = new SlowMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 100,
+                        c.mifDataBeats, c.io.mem.resp.bits.data.needWidth/8, log=Some(log))
   val htif = new TesterHTIF(0, args.htif)
   val htifHandler = new HTIFHandler(c, htif) 
 
@@ -169,18 +214,18 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
   dataHandler.process()
   respHandler.process()
 
-  args.log match {
-    case None =>
-    case Some(f) => addObserver(new Observer(file=f))
-  }
+  if (args.verbose) addObserver(new Observer(file=log))
 
-  mem loadMem args.loadmem
-  if (!run(c, htif, args.maxcycles, args.log)) fail
+  args.loadmem match {
+    case None =>
+    case Some(f) => mem loadMem f
+  }
+  if (!run(c, htif, args.maxcycles, Some(log))) fail
 }
 
-class RocketChipSimTester(c: TopWrapper, args: RocketChipTestArgs, sampleFile: Option[String] = None)
-    extends strober.SimWrapperTester(c, new strober.StroberTesterArgs(
-      false, true, sampleFile, args.testCmd, args.dumpFile)) with RocketTests {
+class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: RocketChipTestArgs)
+    extends strober.SimWrapperTester(c, new strober.StroberTestArgs(
+      sampleFile, args.dumpFile, args.logFile, args.testCmd, args.verbose)) with RocketTests {
   val top = c.target
   val cmdHandler = new DecoupledSink(top.io.mem.req_cmd,
     (cmd: MemReqCmd) => new TestMemReq(peek(cmd.addr).toInt, peek(cmd.tag), peek(cmd.rw) != 0))
@@ -189,7 +234,7 @@ class RocketChipSimTester(c: TopWrapper, args: RocketChipTestArgs, sampleFile: O
   val respHandler = new DecoupledSource(top.io.mem.resp,
     (resp: MemResp, in: TestMemResp) => {reg_poke(resp.data, in.data) ; reg_poke(resp.tag, in.tag)})
   val mem = new FastMem(cmdHandler.outputs, dataHandler.outputs, respHandler.inputs, 
-                        top.mifDataBeats, top.io.mem.resp.bits.data.needWidth/8, log=args.log)
+                        top.mifDataBeats, top.io.mem.resp.bits.data.needWidth/8, log=Some(log))
   val htif = new TesterHTIF(0, args.htif)
   val htifHandler = new HTIFHandler(top, htif) 
 
@@ -200,23 +245,22 @@ class RocketChipSimTester(c: TopWrapper, args: RocketChipTestArgs, sampleFile: O
   dataHandler.process()
   respHandler.process()
 
-  println(s"[RocketchipSimTester] runs ${args.loadmem}")
 
-  args.log match {
+  args.loadmem match {
     case None =>
-    case Some(f) => addObserver(new StroberObserver(file=f))
+    case Some(f) =>
+      println(s"[RocketchipSimTester] runs ${f}")
+      mem loadMem f
   }
-
-  mem loadMem args.loadmem
-  setTraceLen(7)
-  if (!run(top, htif, args.maxcycles, args.log)) fail
+  setTraceLen(128)
+  if (!run(top, htif, args.maxcycles, Some(log))) fail
 }
 
 
-class RocketChipNastiShimTester(c: NastiShim, args: RocketChipTestArgs, 
-    sampleFile: Option[String] = None, stepSize: Int = 128, memCycles: Int = 12) 
-    extends strober.NastiShimTester(c, new strober.StroberTesterArgs(
-      false, true, sampleFile, args.testCmd, args.dumpFile)) with RocketTests {
+class RocketChipNastiShimTester(c: NastiShim, sampleFile: Option[String], 
+    args: RocketChipTestArgs, stepSize: Int = 128, memCycles: Int = 12)
+    extends strober.NastiShimTester(c, new strober.StroberTestArgs(
+      sampleFile, args.dumpFile, args.logFile, args.testCmd, args.verbose)) with RocketTests { 
   val top = c.sim.target
   val htif = new TesterHTIF(0, args.htif)
   val htif_bytes = top.io.host.in.bits.needWidth/8
@@ -224,17 +268,16 @@ class RocketChipNastiShimTester(c: NastiShim, args: RocketChipTestArgs,
   val htif_in_bits  = Array.fill(htif_bytes)(0.toByte)
   val htif_out_bits = Array.fill(htif_bytes)(0.toByte)
 
-  args.log match {
+  args.loadmem match {
     case None =>
-    case Some(f) => addObserver(new StroberObserver(file=f))
+    case Some(f) => 
+      println(s"[RocketchipNastiShimTester] runs ${f}")
+      loadMem(f)
   }
-
-  println(s"[RocketchipNastiShimTester] runs ${args.loadmem}")
 
   setTraceLen(stepSize)
   assert(traceLen % stepSize == 0)
   setMemCycles(memCycles)
-  loadMem(args.loadmem)
 
   val startTime = System.nanoTime
   do {
@@ -273,7 +316,5 @@ class RocketChipNastiShimTester(c: NastiShim, args: RocketChipTestArgs,
   val reason = if (cycles < args.maxcycles) s"tohost = ${htif.exit_code}" else "timeout"
   expect(htif.exit_code == 0 && cycles <= args.maxcycles, 
     s"*** ${reason} *** after ${cycles} simulation cycles")
-  args.log match { case None => case Some(f) =>
-    f.println("Time elapsed = %.1f s, Simulation Speed = %.2f Hz".format(simTime, simSpeed))
-  }
+  log.println("Time elapsed = %.1f s, Simulation Speed = %.2f Hz".format(simTime, simSpeed))
 }

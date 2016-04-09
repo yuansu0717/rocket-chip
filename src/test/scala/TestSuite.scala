@@ -3,7 +3,7 @@ package rocketchip
 import Chisel._
 import org.scalatest._
 
-abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fixture.ConfigMapFixture 
+abstract class RocketChipTestSuite(N: Int = 8) extends fixture.PropSpec with fixture.ConfigMapFixture 
     with prop.TableDrivenPropertyChecks with GivenWhenThen with BeforeAndAfter { 
   import scala.actors.Actor._
   import matchers.ShouldMatchers._
@@ -19,34 +19,35 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
           "--genHarness", "--compile", "--noAssert", "--compileInitializationUnoptimized")
   private def debugArgs(config: String, b: String) = compArgs(config, b) ++ 
     Array("--debug", "--vcd", "--vcdMem")
-  private def testArgs(b: String, cmd: String) = baseArgs ++ Array("--backend", b, "--testCommand", cmd)
+  private def testArgs(config: String, b: String, cmd: String) = 
+    baseArgs ++ Array("--configInstance", s"rocketchip.${config}", "--backend", b, "--testCommand", cmd)
 
   private case class TestRun(c: Module, args: RocketChipTestArgs, sample: Option[String] = None)
-  private case class TopReplay(c: Top, sample: Seq[strober.Sample], dump: String, log: String) 
+  private case class TopReplay(c: Top, args: strober.ReplayArgs)
   private case object TestFin
   private val testers = List.fill(N){ actor { loop { react {
     case TestRun(c, args, sample) => c match {
       case top: Top => sender ! (try { 
         (new RocketChipTester(top, args)).finish
       } catch { 
-        case _: Throwable => false 
+        case e: Throwable => println(e) ; false 
       })
       case top: TopWrapper => sender ! (try { 
-        (new RocketChipSimTester(top, args, sample)).finish
+        (new RocketChipSimTester(top, sample, args)).finish
       } catch { 
-        case _: Throwable => false 
+        case e: Throwable => println(e) ; false 
       })
       case top: NastiShim => sender ! (try { 
-        (new RocketChipNastiShimTester(top, args, sample)).finish
+        (new RocketChipNastiShimTester(top, sample, args)).finish
       } catch { 
-        case _: Throwable => false 
+        case e: Throwable => println(e) ; false 
       })
       case _ => sender ! false
     }
-    case TopReplay(c, sample, dump, log) => sender ! (try { 
-      (new RocketChipReplay(c, sample, dump=Some(dump), log=Some(log))).finish
+    case TopReplay(c, args) => sender ! (try { 
+      (new RocketChipReplay(c, args)).finish
     } catch { 
-      case _: Throwable => false 
+      case e: Throwable => println(e) ; false 
     })
     case TestFin => exit()
   } } } }
@@ -59,12 +60,12 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
         val simv = new File(s"${p}/simv-${config}")
         if (!simv.exists) assert(Seq("make", "-C", p, s"CONFIG=${config}").! == 0)
         dumpDir.listFiles foreach (_.delete)
-        testArgs(b, simv.getPath.toString)
+        testArgs(config, b, simv.getPath.toString)
     }
     chiselMain.run(args, () => c)
   }
 
-  def runSuites[T <: Module, S <: RocketTestSuite](c: => T, maxcycles: Long = 100000000) {
+  def runSuites[T <: Module, S <: RocketTestSuite](c: => T, elf: Boolean = false, maxcycles: Long = 100000000) {
     property("RocketChip should run the following test suites") { configMap =>
       val backend = configMap("BACKEND").toString
       val config = configMap("CONFIG").toString
@@ -84,18 +85,25 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
             case s: AssemblyTestSuite  => s"${s.toolsPrefix}-${s.envName}-${t}"
             case s: BenchmarkTestSuite => s"${t}.riscv"
           }
-          val loadmem = s"${dir}/${name}.hex"
-          val sample = Some(s"${name}.sample")
-          val log = new PrintStream(s"${logDir.getPath}/${dutName}-${name}-${backend}.log")
+          val elfpath = s"${dir}/${name}"
+          val loadmem = if (elf) None else Some(s"${elfpath}.hex")
+          val sample = Some(s"${outDir.getPath}/${name}.sample")
+          val log = Some(s"${logDir.getPath}/${dutName}-${name}-${backend}.log")
           val vcd = s"${dumpDir}/${dutName}-${name}.vcd"
           val vpd = s"${dumpDir}/${dutName}-${name}.vpd"
           val saif = s"${dumpDir}/${dutName}-${name}.saif"
           val dump = backend match { case "c" => Some(vcd) case "v" => Some(vpd) case _ => None }
+          val htif = if (elf) Array(elfpath) else Array[String]()
           val cmd = cmdDir map { dir => 
-            val pipe = "${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
+            val pipe = s"${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
             s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${pipe}" """ }
-          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, cmd, Some(log), dump)
-          if (!(new File(loadmem).exists)) assert(Seq("make", "-C", dir, s"${name}.hex").! == 0)
+          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, log, cmd, htif, cmdDir != None)
+          loadmem match {
+            case None =>
+              if (!(new File(elfpath).exists)) assert(Seq("make", "-C", dir, name).! == 0)
+            case Some(hex) =>
+              if (!(new File(hex).exists)) assert(Seq("make", "-C", dir, s"${name}.hex").! == 0)
+          }
           name -> (testers(i % N) !! new TestRun(dut, testArgs, sample))
         } foreach {case (name, f) =>
           f.inputChannel receive {case pass: Boolean =>
@@ -125,9 +133,10 @@ abstract class RocketChipTestSuite(N: Int = 6) extends fixture.PropSpec with fix
             case s: BenchmarkTestSuite => s"${t}.riscv"
           }
           val sample = strober.Sample.load(s"${outDir}/${name}.sample")
-          val log = s"${logDir}/replay-${name}.log"
-          val dump = s"${dumpDir}/replay-${name}.vpd"
-          name -> (testers(i % N) !! new TopReplay(dut, sample, dump, log))
+          val log = Some(s"${logDir}/replay-${name}.log")
+          val dump = Some(s"${dumpDir}/replay-${name}.vpd")
+          val args = new strober.ReplayArgs(sample, dump, log)
+          name -> (testers(i % N) !! new TopReplay(dut, args))
         } foreach {case (name, f) =>
           f.inputChannel receive { case pass: Boolean => 
             Then(s"should replay sample from ${name}") 

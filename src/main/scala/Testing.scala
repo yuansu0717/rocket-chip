@@ -123,10 +123,8 @@ object DefaultTestSuites {
     "led", "mbist"))
 }
 
-class RocketChipReplay(c: Module, samples: Seq[strober.Sample], 
-    matchFile: Option[String] = None, testCmd: Option[String] = Driver.testCommand, 
-    dump: Option[String] = None, log: Option[String] = None) 
-    extends strober.Replay(c.asInstanceOf[Top], samples, matchFile, testCmd, dump, log) {
+class RocketChipReplay(c: Module, args: strober.ReplayArgs) 
+    extends strober.Replay(c.asInstanceOf[Top], args) {
   override def expect(data: Bits, expected: BigInt) = {
     // Sadly, Design Compiler optimization prunes the registers
     // directly connected to the tag output, causing output value descrepancy...
@@ -163,17 +161,18 @@ object TestGenerator extends App {
     val matchFile = args(5) match { case "none" => None case f => Some(f) }
     val testCmd   = args(6) match { case "none" => None case c => Some(c) }
     val N = args(7).toInt
+    case class ReplayMsg(dut: Module, args: strober.ReplayArgs)
     case object ReplayFin
     val replays = List.fill(N){ actor { loop { react {
-      case (sample: strober.Sample, cmd: Option[String], dump: Option[String], log: Option[String]) =>
+      case ReplayMsg(dut, args) =>
         sender ! (try {
-          (new RocketChipReplay(top, Seq(sample), matchFile, cmd, dump, log)).finish
+          (new RocketChipReplay(dut, args)).finish
         } catch {
-          case _: Throwable => false
+          case e: Throwable => println(e) ; false
         })
       case ReplayFin => exit()
     } } } }
-    sample.zipWithIndex map {case (sample, idx) =>
+    val replayArgs = sample.zipWithIndex map {case (sample, idx) =>
       val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
       val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
       val saif = s"${dirName}/${prefix}_${idx}.saif"
@@ -185,13 +184,23 @@ object TestGenerator extends App {
         case Some(c) =>
           Seq("rm", "-rf", vcd, vpd).!
           val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
-          Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " ")
+          (Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " "), None)
       }
-      idx -> (replays(idx % N) !! (sample, cmd, dump, Some(log)))
-    } map {case (idx ,f) => 
-      f.inputChannel receive {case pass: Boolean => idx -> pass}
-    } foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
+      idx -> new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
+    } 
+    val p = N match {
+      case 1 => replayArgs map {
+        case (idx, arg) => idx -> (new RocketChipReplay(top, arg)).finish
+      }
+      case _ => replayArgs map {
+        case (idx, arg) => idx -> (replays(idx % N) !! new ReplayMsg(top, arg)) 
+      } map {
+        case (idx ,f) => f.inputChannel receive {case pass: Boolean => idx -> pass}
+      } 
+    } 
+    p foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
     replays foreach (_ ! ReplayFin)
+    Tester.close
   } else {
     chiselMain.run(args.drop(1), gen) 
     TestGeneration.generateMakefrag

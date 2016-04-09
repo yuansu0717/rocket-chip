@@ -6,13 +6,13 @@ N ?= 1 # num of replay instances
 
 # Build RocketChip
 compile-cpp: $(chisel_srcs) 
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --noIoDebug"
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --noIoDebug"
 
 compile-cpp-debug: $(chisel_srcs)
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --debug --vcd --ioDebug"
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --debug --vcd --ioDebug"
 
 compile-v: $(chiel_srcs)
-	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --v --debug --vcd --ioDebug"
+	cd $(base_dir) && $(SBT) "project $(PROJECT)" "run $(CHISEL_ARGS) --compile --v --debug --vcd --ioDebug"
 
 # Build VCS Simulators
 $(vcs_sim_rtl_dir)/simv-$(CONFIG):
