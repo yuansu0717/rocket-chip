@@ -151,7 +151,7 @@ object TestGenerator extends App {
     val dirName = args(3)
     val chiselArgs = Array(// "--minimumCompatibility", "3.0",
       "--W0W", "--backend", "null", "--configInstance", s"rocketchip.${config}", 
-      "--targetDir", dirName, "--test", "--noInlineMem", "--noAssert") ++ (args drop 8)
+      "--targetDir", dirName, "--test", "--noAssert") ++ (args drop 8)
     val top = chiselMain.run(chiselArgs, gen)
     val logDir = new java.io.File(s"${dirName}/logs")
     if (!logDir.exists) logDir.mkdirs
