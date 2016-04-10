@@ -188,7 +188,7 @@ case class RocketChipTestArgs(
   logFile: Option[String] = None,
   testCmd: Option[String] = Driver.testCommand,
   htif: Array[String] = Array(),
-  verbose: Boolean = false)
+  verbose: Boolean = true)
 
 class RocketChipTester(c: Top, args: RocketChipTestArgs) 
     extends AdvTester(c, testCmd=args.testCmd, dumpFile=args.dumpFile) with RocketTests {
@@ -213,8 +213,6 @@ class RocketChipTester(c: Top, args: RocketChipTestArgs)
   cmdHandler.process()
   dataHandler.process()
   respHandler.process()
-
-  if (args.verbose) addObserver(new Observer(file=log))
 
   args.loadmem match {
     case None =>
@@ -244,7 +242,6 @@ class RocketChipSimTester(c: TopWrapper, sampleFile: Option[String], args: Rocke
   cmdHandler.process()
   dataHandler.process()
   respHandler.process()
-
 
   args.loadmem match {
     case None =>

@@ -97,7 +97,7 @@ abstract class RocketChipTestSuite(N: Int = 8) extends fixture.PropSpec with fix
           val cmd = cmdDir map { dir => 
             val pipe = s"${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
             s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${pipe}" """ }
-          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, log, cmd, htif, cmdDir != None)
+          val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, log, cmd, htif, cmdDir == None)
           loadmem match {
             case None =>
               if (!(new File(elfpath).exists)) assert(Seq("make", "-C", dir, name).! == 0)
