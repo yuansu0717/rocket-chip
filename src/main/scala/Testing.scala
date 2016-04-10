@@ -155,7 +155,7 @@ object TestGenerator extends App {
     val top = chiselMain.run(chiselArgs, gen)
     val logDir = new java.io.File(s"${dirName}/logs")
     if (!logDir.exists) logDir.mkdirs
-    val prefix = (new java.io.File(args(4)).getName split '.').head
+    val prefix = (new java.io.File(args(4)).getName split '.').init mkString "."
     val sample = strober.Sample.load(args(4), 
       new java.io.PrintStream(s"${logDir}/${prefix}-sample.log"))
     val matchFile = args(5) match { case "none" => None case f => Some(f) }
