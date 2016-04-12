@@ -13,10 +13,10 @@ CXXFLAGS := $(CXXFLAGS) -O2 -I$(VCS_HOME)/include -I$(generated_dir) -std=c++11
 VCS = vcs -full64
 
 VCS_OPTS = -quiet -timescale=1ns/1ps -debug_pp -Mdir=simv-$(CONFIG).csrc -P $(tab_file) \
-	+rad +v2k +vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random +evalorder \
+	+rad +v2k +vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random \
 	+no_notifier +vcs+lic+wait \
 	-cpp $(CXX) -O2 -LDFLAGS -lstdc++ -CFLAGS "$(CXXFLAGS)"
-	#+neg_tchk +sdfverbose -sdf max:$(MODEL):$(result_dir)/$(MODEL).output.sdf \
+	#+evalorder +neg_tchk +sdfverbose -sdf max:$(MODEL):$(result_dir)/$(MODEL).output.sdf \
 
 $(generated_dir)/$(MODEL).$(CONFIG)-harness.v: $(generated_dir)/$(MODEL).$(CONFIG).v
 
