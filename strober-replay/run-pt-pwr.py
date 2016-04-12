@@ -11,7 +11,7 @@ import time
 if __name__ == '__main__':
   sample  = os.path.abspath(str(sys.argv[1]))
   prefix  = os.path.splitext(os.path.basename(sample))[0]
-  job_num = int(sys.argv[2]) if (len(sys.argv) > 2) else 6 
+  job_num = int(sys.argv[2]) if (len(sys.argv) > 2) else 4 
  
   """ read samples """
   sample_size = 0
