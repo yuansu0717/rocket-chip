@@ -112,7 +112,7 @@ object DefaultTestSuites {
   val rv64i = List(rv64ui, rv64si, rv64mi)
 
   val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", ListSet(
-    "mm", "spmv", "median", /*"multiply",*/ "qsort", "towers", "vvadd", "dhrystone"/*, "mt-vvadd", "mt-matmul"*/))
+    "spmv", "median", /*"multiply",*/ "qsort", "mm", "towers", "vvadd", "dhrystone"/*, "mt-vvadd", "mt-matmul"*/))
 
   val mtBmarks = new BenchmarkTestSuite("mt", "$(base_dir)/riscv-tools/riscv-tests/mt",
     ((0 to 4).map("vvadd"+_) ++ 

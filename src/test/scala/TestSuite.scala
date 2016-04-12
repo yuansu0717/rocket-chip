@@ -3,7 +3,7 @@ package rocketchip
 import Chisel._
 import org.scalatest._
 
-abstract class RocketChipTestSuite(N: Int = 8) extends fixture.PropSpec with fixture.ConfigMapFixture 
+abstract class RocketChipTestSuite(N: Int = 4) extends fixture.PropSpec with fixture.ConfigMapFixture 
     with prop.TableDrivenPropertyChecks with GivenWhenThen with BeforeAndAfter { 
   import scala.actors.Actor._
   import matchers.ShouldMatchers._
