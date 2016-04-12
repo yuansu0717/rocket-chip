@@ -95,7 +95,7 @@ abstract class RocketChipTestSuite(N: Int = 8) extends fixture.PropSpec with fix
           val dump = backend match { case "c" => Some(vcd) case "v" => Some(vpd) case _ => None }
           val htif = if (elf) Array(elfpath) else Array[String]()
           val cmd = cmdDir map { dir => 
-            val pipe = s"${dir}/simv-${config} +vcdfile=${vcd} +vpdfile=${vpd}" 
+            val pipe = s"${dir}/simv-${config} +vcdfile=${vcd}" 
             s"""vcd2saif -input ${vcd} -output ${saif} -pipe "${pipe}" """ }
           val testArgs = new RocketChipTestArgs(loadmem, maxcycles, dump, log, cmd, htif, cmdDir == None)
           loadmem match {

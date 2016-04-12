@@ -4,6 +4,7 @@ package rocketchip
 
 import Chisel._
 import sys.process.stringSeqToProcess
+import collection.immutable.ListSet
 
 abstract class RocketTestSuite {
   val dir: String
@@ -110,8 +111,8 @@ object DefaultTestSuites {
   val rv64u = List(rv64ui, rv64um, rv64ua)
   val rv64i = List(rv64ui, rv64si, rv64mi)
 
-  val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", Set(
-    "median", "multiply", "qsort", "towers", "vvadd", "mm", "dhrystone", "spmv", "mt-vvadd", "mt-matmul"))
+  val bmarks = new BenchmarkTestSuite("basic", "$(base_dir)/riscv-tools/riscv-tests/benchmarks", ListSet(
+    "mm", "spmv", "median", /*"multiply",*/ "qsort", "towers", "vvadd", "dhrystone"/*, "mt-vvadd", "mt-matmul"*/))
 
   val mtBmarks = new BenchmarkTestSuite("mt", "$(base_dir)/riscv-tools/riscv-tests/mt",
     ((0 to 4).map("vvadd"+_) ++ 
