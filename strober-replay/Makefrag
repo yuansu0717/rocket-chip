@@ -2,7 +2,7 @@
 SAMPLE ?= $(replay_dir)/$(MODEL).sample
 
 #TODO: races in vcs parallel execution?
-N ?= 1 # num of replay instances 
+N ?= 0 # num of replay instances
 
 # Build RocketChip
 compile-cpp: $(chisel_srcs) 

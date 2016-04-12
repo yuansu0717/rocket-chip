@@ -182,7 +182,7 @@ object TestGenerator extends App {
         case None => (None, Some(vpd))
         case Some(c) if matchFile == None =>
           (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
-        case Some(c) if N == 1 =>
+        case Some(c) if N == 0 =>
           (Some(List(c, s"+vpdfile=${vpd}", s"+saiffile=${saif}") mkString " "), None)
         case Some(c) =>
           Seq("rm", "-rf", vcd, vpd).!
@@ -192,7 +192,7 @@ object TestGenerator extends App {
       idx -> new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
     } 
     val p = N match {
-      case 1 => replayArgs map {case (idx, arg) =>
+      case 0 => replayArgs map {case (idx, arg) =>
         // Todo: should rename file here because $toggle_report can't handle white space...
         val saif = s"${dirName}/${prefix}_${idx}.saif"
         val pass = (new RocketChipReplay(top, arg)).finish
@@ -204,8 +204,8 @@ object TestGenerator extends App {
         case (idx, arg) => idx -> (replays(idx % N) !! new ReplayMsg(top, arg)) 
       } map {
         case (idx ,f) => f.inputChannel receive {case pass: Boolean => idx -> pass}
-      } 
-    } 
+      }
+    }
     p foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
     replays foreach (_ ! ReplayFin)
     Tester.close
