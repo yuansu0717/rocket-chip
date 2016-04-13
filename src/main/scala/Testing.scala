@@ -196,6 +196,7 @@ object TestGenerator extends App {
         // Todo: should rename file here because $toggle_report can't handle white space...
         val saif = s"${dirName}/${prefix}_${idx}.saif"
         val pass = (new RocketChipReplay(top, arg)).finish
+        Thread.sleep(100)
         val temp = new java.io.File("Top.saif")
         if (temp.exists) temp renameTo new java.io.File(saif)
         idx -> pass
