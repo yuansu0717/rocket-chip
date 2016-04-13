@@ -8,7 +8,7 @@ PROJECT := rocketchip
 CXX ?= g++
 CXXFLAGS := -O1
 
-SBT := java -Xmx2048M -Xss8M -XX:MaxPermSize=512M -XX:-UseGCOverheadLimit -jar sbt-launch.jar \
+SBT := java -Xmx2048M -Xss8M -XX:MaxPermSize=512M -jar sbt-launch.jar \
 	-Djava.library.path=$(base_dir)/src/test/resources
 SHELL := /bin/bash
 
