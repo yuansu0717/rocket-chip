@@ -191,7 +191,7 @@ object TestGenerator extends App {
             })
           case ReplayFin => exit()
         } } } }
-        sample.zipWithIndex map {case (sample, idx) =>
+        val replayArgs = sample.zipWithIndex map {case (sample, idx) =>
           val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
           val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
           val saif = s"${dirName}/${prefix}_${idx}.saif"
@@ -207,10 +207,14 @@ object TestGenerator extends App {
               val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
               (Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " "), None)
           }
-          idx -> (replays(idx % N) !! new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd))
+          idx -> new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
+        }
+        val p = replayArgs map {
+          case (idx, args) => idx -> (replays(idx % N) !! new ReplayMsg(top, args))
         } map {
           case (idx ,f) => f.inputChannel receive {case pass: Boolean => idx -> pass}
-        } foreach {
+        }
+        p foreach {
           case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")
         }
         replays foreach (_ ! ReplayFin)
