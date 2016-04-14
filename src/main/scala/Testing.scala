@@ -162,54 +162,60 @@ object TestGenerator extends App {
     val matchFile = args(5) match { case "none" => None case f => Some(f) }
     val testCmd   = args(6) match { case "none" => None case c => Some(c) }
     val N = args(7).toInt
-    case class ReplayMsg(dut: Module, args: strober.ReplayArgs)
-    case object ReplayFin
-    val replays = List.fill(N){ actor { loop { react {
-      case ReplayMsg(dut, args) =>
-        sender ! (try {
-          (new RocketChipReplay(dut, args)).finish
-        } catch {
-          case e: Throwable => println(e) ; false
-        })
-      case ReplayFin => exit()
-    } } } }
-    val replayArgs = sample.zipWithIndex map {case (sample, idx) =>
-      val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
-      val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
-      val saif = s"${dirName}/${prefix}_${idx}.saif"
-      val log  = s"${logDir}/${prefix}_${idx}.log"
-      val (cmd, dump) = testCmd match {
-        case None => (None, Some(vpd))
-        case Some(c) if matchFile == None =>
-          (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
-        case Some(c) if N == 0 =>
-          (Some(List(c, s"+vpdfile=${vpd}", s"+saiffile=${saif}") mkString " "), None)
-        case Some(c) =>
-          Seq("rm", "-rf", vcd, vpd).!
-          val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
-          (Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " "), None)
-      }
-      idx -> new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd)
-    } 
-    val p = N match {
-      case 0 => replayArgs map {case (idx, arg) =>
-        // Todo: should rename file here because $toggle_report can't handle white space...
-        val saif = s"${dirName}/${prefix}_${idx}.saif"
-        val pass = (new RocketChipReplay(top, arg)).finish
-        Thread.sleep(100)
-        val temp = new java.io.File("Top.saif")
-        if (temp.exists) temp renameTo new java.io.File(saif)
-        idx -> pass
-      }
-      case _ => replayArgs map {
-        case (idx, arg) => idx -> (replays(idx % N) !! new ReplayMsg(top, arg)) 
-      } map {
-        case (idx ,f) => f.inputChannel receive {case pass: Boolean => idx -> pass}
-      }
+    N match {
+      case 0 =>
+        val vpd  = s"${dirName}/${prefix}.vpd"
+        val saif = s"${dirName}/${prefix}.saif"
+        val log  = s"${logDir}/${prefix}.log"
+        val (cmd, dump) = testCmd match {
+          case None => (None, Some(vpd))
+          case Some(c) if matchFile == None =>
+            (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
+          case Some(c) =>
+            (Some(List(c, s"+vpdfile=${vpd}", s"+saiffile=${saif}") mkString " "), None)
+        }
+        val args = strober.ReplayArgs(sample, dump, Some(log), matchFile, cmd, true, Some(s"${dirName}/${prefix}"))
+        if (!(new RocketChipReplay(top, args).finish)) {
+          ChiselError.error("[replay] ${prefix} failed...")
+        }
+        Tester.close
+      case _ =>
+        case class ReplayMsg(dut: Module, args: strober.ReplayArgs)
+        case object ReplayFin
+        val replays = List.fill(N){ actor { loop { react {
+          case ReplayMsg(dut, args) =>
+            sender ! (try {
+              (new RocketChipReplay(dut, args)).finish
+            } catch {
+              case e: Throwable => println(e) ; false
+            })
+          case ReplayFin => exit()
+        } } } }
+        sample.zipWithIndex map {case (sample, idx) =>
+          val vcd  = s"${dirName}/${prefix}_${idx}_pipe.vcd"
+          val vpd  = s"${dirName}/${prefix}_${idx}.vpd"
+          val saif = s"${dirName}/${prefix}_${idx}.saif"
+          val log  = s"${logDir}/${prefix}_${idx}.log"
+          val (cmd, dump) = testCmd match {
+            case None => (None, Some(vpd))
+            case Some(c) if matchFile == None =>
+              (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
+            case Some(c) if N == 0 =>
+              (Some(List(c, s"+vpdfile=${vpd}", s"+saiffile=${saif}") mkString " "), None)
+            case Some(c) =>
+              Seq("rm", "-rf", vcd, vpd).!
+              val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "
+              (Some(List("vcd2saif", "-input", vcd, "-output", saif, "-pipe", s""""${pipe}" """) mkString " "), None)
+          }
+          idx -> (replays(idx % N) !! new strober.ReplayArgs(Seq(sample), dump, Some(log), matchFile, cmd))
+        } map {
+          case (idx ,f) => f.inputChannel receive {case pass: Boolean => idx -> pass}
+        } foreach {
+          case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")
+        }
+        replays foreach (_ ! ReplayFin)
+        Tester.close
     }
-    p foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
-    replays foreach (_ ! ReplayFin)
-    Tester.close
   } else {
     chiselMain.run(args.drop(1), gen) 
     TestGeneration.generateMakefrag

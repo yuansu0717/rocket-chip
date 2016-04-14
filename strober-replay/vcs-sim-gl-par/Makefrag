@@ -14,9 +14,9 @@ VCS = vcs -full64
 
 VCS_OPTS = -quiet -timescale=1ns/1ps -debug_pp -Mdir=simv-$(CONFIG).csrc -P $(tab_file) \
 	+rad +v2k +vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random \
-	+vcs+lic+wait +no_notifier +race=all \
+	+vcs+lic+wait +no_notifier +race=all +evalorder \
 	-cpp $(CXX) -LDFLAGS -lstdc++ -CFLAGS "$(CXXFLAGS)" \
-	+delay_mode_zero +nospecify +teramax +notimingcheck +nbaopt \
+	+delay_mode_zero +nospecify +tetramax +notimingcheck +nbaopt \
 	#+neg_tchk +sdfverbose -sdf max:$(MODEL):$(result_dir)/$(MODEL).output.sdf \
 
 $(generated_dir)/$(MODEL).$(CONFIG)-harness.v: $(generated_dir)/$(MODEL).$(CONFIG).v

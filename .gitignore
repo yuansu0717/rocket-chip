@@ -5,4 +5,5 @@ project/target
 .addons-dont-touch
 *.key
 *.out
+*.static
 test-*

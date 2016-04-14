@@ -19,4 +19,4 @@ include $(sim_dir)/Makefrag
 simv: simv-$(CONFIG)
 
 clean:
-	rm -rf *.vcd *.saif *.vpd simv* sdfAnnotateInfo *.match logs DVEfiles
+	rm -rf *.vcd *.saif *.vpd simv* sdfAnnotateInfo *.match logs DVEfiles race.*
