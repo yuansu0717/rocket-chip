@@ -200,8 +200,6 @@ object TestGenerator extends App {
             case None => (None, Some(vpd))
             case Some(c) if matchFile == None =>
               (Some(List(c, s"+vpdfile=${vpd}") mkString " "), None)
-            case Some(c) if N == 0 =>
-              (Some(List(c, s"+vpdfile=${vpd}", s"+saiffile=${saif}") mkString " "), None)
             case Some(c) =>
               Seq("rm", "-rf", vcd, vpd).!
               val pipe = List(c, s"+vpdfile=${vpd}", s"+vcdfile=${vcd}") mkString " "

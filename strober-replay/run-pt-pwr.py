@@ -19,6 +19,7 @@ if __name__ == '__main__':
     for line in f:
       if line[0:8] == "0 cycle:":
         sample_size += 1
+  sample_size -= 1
 
   """ launch PrimeTime PX """
   for k in range((sample_size+job_num-1)/job_num+1):
@@ -39,7 +40,8 @@ if __name__ == '__main__':
   
     print "[pt-pwr] samples " + str(k*job_num) + " ~ " + str((k+1)*job_num-1) + " are done"
     print "[pt-pwr] time = " + str(endTime - startTime) + " secs"
-  
+
+  time.sleep(10)
   """ read power reports """
   modules = list()
   sample_pwr = dict()
@@ -55,6 +57,7 @@ if __name__ == '__main__':
   for k in range(sample_size):
     path = "pt-pwr/current-pt/reports/" + prefix +"_" + str(k) + ".power.avg.max.report"
     if os.path.exists(path):
+      print "[pt-pwr] opened " + path
       find = False
       for line in open(path):
         if not find:
