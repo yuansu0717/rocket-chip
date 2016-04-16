@@ -8,15 +8,15 @@ vpi_srcs = $(generated_dir)/vpi.cpp
 tab_file = $(generated_dir)/vpi.tab
 
 CXX ?= g++
-CXXFLAGS := $(CXXFLAGS) -O3 -I$(VCS_HOME)/include -I$(generated_dir) -std=c++11 
+CXXFLAGS := $(CXXFLAGS) -I$(VCS_HOME)/include -I$(generated_dir) -std=c++11
 
 VCS = vcs -full64
 
 VCS_OPTS = -quiet -timescale=1ns/1ps -debug_pp -Mdir=simv-$(CONFIG).csrc -P $(tab_file) \
-	+vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random \
-	+vcs+lic+wait +no_notifier +evalorder +udpsched \
+	+v2k +vpi +define+CLOCK_PERIOD=$(vcs_clock_period) +vcs+initreg+random \
+	+vcs+lic+wait +no_notifier +evalorder \
 	-cpp $(CXX) -LDFLAGS -lstdc++ -CFLAGS "$(CXXFLAGS)" \
-	+delay_mode_zero +nospecify +notimingcheck \
+	+delay_mode_zero +notimingcheck \
 
 $(generated_dir)/$(MODEL).$(CONFIG)-harness.v: $(generated_dir)/$(MODEL).$(CONFIG).v
 
