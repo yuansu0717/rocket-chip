@@ -295,7 +295,8 @@ class TopWrapper extends strober.SimWrapper(new Top) {
             strober.transforms.addRetiming(exe.imul.imul, exe.IMUL_STAGES)
           }
         case _ => 
-      } 
+      }
+      strober.transforms.addNoSnap(tile.dcache.dtlb) 
       case _ =>
     }
     case _ =>
