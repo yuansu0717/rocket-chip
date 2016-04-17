@@ -179,10 +179,10 @@ object TestGenerator extends App {
       }
       idx -> (replays(idx % N) !! (sample, cmd, Some(log)))
     }
-    replays foreach (_ ! ReplayFin)
     futures map {case (idx ,f) => 
       f.inputChannel receive {case pass: Boolean => idx -> pass}
     } foreach {case (idx, pass) => if (!pass) ChiselError.error(s"SAMPLE #${idx} FAILED")}
+    replays foreach (_ ! ReplayFin)
   } else {
     chiselMain.run(args.drop(1), gen) 
     TestGeneration.generateMakefrag
