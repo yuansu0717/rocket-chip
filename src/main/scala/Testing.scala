@@ -148,7 +148,7 @@ object TestGenerator extends App {
     // args(4): # of replay instances in parallel
     val top = chiselMain.run(args drop 5, gen)
     val logDir = Driver.ensureDir(s"${Driver.targetDir}/logs")
-    val prefix = (new java.io.File(args(2)).getName split '.').head
+    val prefix = (new java.io.File(args(2)).getName split '.').init mkString "."
     val samples = strober.Sample.load(args(2), 
       new java.io.PrintStream(s"${logDir}/${prefix}-sample.log"))
     val matchFile = args(3) match { case "none" => None case p => Some(p) }
