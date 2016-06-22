@@ -234,6 +234,7 @@ class BaseConfig extends Config (
       case NExtInterrupts => 2
       case NExtMMIOAXIChannels => 0
       case NExtMMIOAHBChannels => 0
+      case NExtMMIOTLChannels => 0
       case PLICKey => PLICConfig(site(NTiles), site(UseVM), site(NExtInterrupts), 0)
       case DMKey => new DefaultDebugModuleConfig(site(NTiles), site(XLen))
       case FDivSqrt => true
@@ -516,6 +517,14 @@ class WithStreamLoopback extends Config(
     case _ => throw new CDEMatchError
   })
 
+class WithDisaggregatedMemory extends Config(
+  (pname, site, here) => pname match {
+    case NChips => Dump("NCHIPS", 2)
+    case NDisaggMemClients => site(NChips)
+    case NDisaggMemChannels => 1
+    case NExtMMIOTLChannels => 1
+  })
+
 class DmaControllerConfig extends Config(new WithDmaController ++ new WithStreamLoopback ++ new DefaultL2Config)
 class DmaControllerFPGAConfig extends Config(new WithDmaController ++ new WithStreamLoopback ++ new DefaultFPGAConfig)
 
@@ -535,3 +544,6 @@ class SplitL2MetadataTestConfig extends Config(new WithSplitL2Metadata ++ new De
 
 class DualCoreConfig extends Config(
   new WithNCores(2) ++ new WithL2Cache ++ new BaseConfig)
+
+class DisaggMemConfig extends Config(
+  new WithDisaggregatedMemory ++ new BaseConfig)

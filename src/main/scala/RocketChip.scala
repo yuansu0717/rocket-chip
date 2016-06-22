@@ -31,6 +31,7 @@ case object NOutstandingMemReqsPerChannel extends Field[Int]
 /** Number of exteral MMIO ports */
 case object NExtMMIOAXIChannels extends Field[Int]
 case object NExtMMIOAHBChannels extends Field[Int]
+case object NExtMMIOTLChannels extends Field[Int]
 /** Whether to divide HTIF clock */
 case object UseHtifClockDiv extends Field[Boolean]
 /** Function for building some kind of coherence manager agent */
@@ -71,6 +72,7 @@ trait HasTopLevelParameters {
   lazy val scrAddrBits = log2Up(nSCR)
   lazy val scrDataBits = 64
   lazy val scrDataBytes = scrDataBits / 8
+  lazy val outerMMIOParams = p.alterPartial({ case TLId => "MMIO_Outermost" })
   //require(lsb + log2Up(nBanks) < mifAddrBits)
 }
 
@@ -93,18 +95,22 @@ class TopIO(implicit p: Parameters) extends BasicTopIO()(p) {
   val interrupts = Vec(p(NExtInterrupts), Bool()).asInput
   val mmio_axi = Vec(p(NExtMMIOAXIChannels), new NastiIO)
   val mmio_ahb = Vec(p(NExtMMIOAHBChannels), new HastiMasterIO)
+  val mmio_tl  = Vec(p(NExtMMIOTLChannels),  new ClientUncachedTileLinkIO()(outerMMIOParams))
   val debug = new DebugBusIO()(p).flip
 }
 
 object TopUtils {
   // Connect two Nasti interfaces with queues in-between
   def connectNasti(outer: NastiIO, inner: NastiIO)(implicit p: Parameters) {
-    val mifDataBeats = p(MIFDataBeats)
     outer.ar <> Queue(inner.ar, 1)
     outer.aw <> Queue(inner.aw, 1)
     outer.w  <> Queue(inner.w)
     inner.r  <> Queue(outer.r)
     inner.b  <> Queue(outer.b, 1)
+  }
+  def connectTilelink(outer: ClientUncachedTileLinkIO, inner: ClientUncachedTileLinkIO)(implicit p: Parameters) {
+    outer.acquire <> Queue(inner.acquire)
+    inner.grant <> Queue(outer.grant)
   }
   def connectTilelinkNasti(nasti: NastiIO, tl: ClientUncachedTileLinkIO)(implicit p: Parameters) = {
     val conv = Module(new NastiIOTileLinkIOConverter())
@@ -171,6 +177,7 @@ class Top(topParams: Parameters) extends Module with HasTopLevelParameters {
 
   io.mmio_axi <> uncore.io.mmio_axi
   io.mmio_ahb <> uncore.io.mmio_ahb
+  io.mmio_tl  <> uncore.io.mmio_tl
   io.mem_axi <> uncore.io.mem_axi
   io.mem_ahb <> uncore.io.mem_ahb
 }
@@ -183,7 +190,6 @@ class Top(topParams: Parameters) extends Module with HasTopLevelParameters {
 class Uncore(implicit val p: Parameters) extends Module
     with HasTopLevelParameters {
 
-
   val io = new Bundle {
     val host = new HostIO(htifW)
     val mem_axi = Vec(nMemAXIChannels, new NastiIO)
@@ -193,6 +199,7 @@ class Uncore(implicit val p: Parameters) extends Module
     val prci = Vec(nTiles, new PRCITileIO).asOutput
     val mmio_axi = Vec(p(NExtMMIOAXIChannels), new NastiIO)
     val mmio_ahb = Vec(p(NExtMMIOAHBChannels), new HastiMasterIO)
+    val mmio_tl  = Vec(p(NExtMMIOTLChannels),  new ClientUncachedTileLinkIO()(outerMMIOParams))
     val interrupts = Vec(p(NExtInterrupts), Bool()).asInput
     val debugBus = new DebugBusIO()(p).flip
   }
@@ -266,17 +273,19 @@ class Uncore(implicit val p: Parameters) extends Module
     val ext = mmioNetwork.port("ext")
     val mmio_axi = p(NExtMMIOAXIChannels)
     val mmio_ahb = p(NExtMMIOAHBChannels)
-    require (mmio_axi + mmio_ahb <= 1)
+    val mmio_tl  = p(NExtMMIOTLChannels)
+    require (mmio_axi + mmio_ahb + mmio_tl <= 1)
     
     if (mmio_ahb == 1) {
       val ahb = Module(new AHBBridge(true)) // with atomics
-      io.mmio_ahb(0) <> ahb.io.ahb
+      io.mmio_ahb.head <> ahb.io.ahb
       ahb.io.tl <> ext
+    } else if (mmio_tl == 1) {
+      TopUtils.connectTilelink(io.mmio_tl.head, ext)
     } else {
-      val mmioEndpoint = mmio_axi match {
-        case 0 => Module(new NastiErrorSlave).io
-        case 1 => io.mmio_axi(0)
-      }
+      val mmioEndpoint =
+        if (mmio_axi == 1) io.mmio_axi.head
+        else Module(new NastiErrorSlave).io
       TopUtils.connectTilelinkNasti(mmioEndpoint, ext)
     }
   }
