@@ -526,6 +526,11 @@ class WithDisaggregatedMemory extends Config(
     case DisaggMemBlackBoxNetwork => false
   })
 
+class WithBlackBoxNetwork extends Config(
+  (pname, site, here) => pname match {
+    case DisaggMemBlackBoxNetwork => true
+  })
+
 class WithNChips(n: Int) extends Config(
   (pname, site, here) => pname match {
     case NChips => Dump("NCHIPS", n)
@@ -553,3 +558,6 @@ class DualCoreConfig extends Config(
 
 class DualChipConfig extends Config(
   new WithNChips(2) ++ new WithDisaggregatedMemory ++ new BaseConfig)
+
+class RapidIOConfig extends Config(
+  new WithBlackBoxNetwork ++ new DualChipConfig)
