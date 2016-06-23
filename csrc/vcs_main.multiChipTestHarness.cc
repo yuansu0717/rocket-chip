@@ -16,7 +16,8 @@ extern int vcs_main(int argc, char** argv);
 extern htif_emulator_t *htif;
 extern unsigned htif_bytes;
 
-static mm_t* mm[N_MEM_CHANNELS];
+static const int n_mems = NCHIPS * N_MEM_CHANNELS + N_DISAGG_MEM_CHANNELS;
+static mm_t* mm[n_mems];
 static const char* loadmem;
 static bool dramsim = false;
 static int memory_channel_mux_select = 0;
@@ -70,16 +71,19 @@ int main(int argc, char** argv)
 
   htif = new htif_emulator_t(std::vector<std::string>(argv + 1, argv + argc));
 
-  for (int i=0; i<N_MEM_CHANNELS; i++) {
+  for (int i=0; i < n_mems; i++) {
     mm[i] = dramsim ? (mm_t*)(new mm_dramsim2_t) : (mm_t*)(new mm_magic_t);
     mm[i]->init(MEM_SIZE / N_MEM_CHANNELS, MEM_DATA_BITS / 8, CACHE_BLOCK_BYTES);
   }
 
   if (loadmem) {
-    void *mems[N_MEM_CHANNELS];
-    for (int i = 0; i < N_MEM_CHANNELS; i++)
+    void *mems[NCHIPS * N_MEM_CHANNELS];
+    for (int i = 0; i < NCHIPS * N_MEM_CHANNELS; i++)
       mems[i] = mm[i]->get_data();
-    load_mem(mems, loadmem, CACHE_BLOCK_BYTES, N_MEM_CHANNELS);
+    for (int i = 0; i < NCHIPS; i++) {
+        load_mem(&mems[i * N_MEM_CHANNELS], loadmem,
+                 CACHE_BLOCK_BYTES, N_MEM_CHANNELS);
+    }
   }
 
   vcs_main(argc, argv);
@@ -122,7 +126,7 @@ void memory_tick(
   vc_handle b_id)
 {
   int c = vc_4stVectorRef(channel)->d;
-  assert(c < N_MEM_CHANNELS);
+  assert(c < n_mems);
   mm_t* mmc = mm[c];
 
   do_memory_tick(mmc,

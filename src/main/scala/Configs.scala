@@ -306,6 +306,7 @@ class BaseConfig extends Config (
       }
       case TLKey("MMIO_Outermost") => site(TLKey("L2toMMIO")).copy(dataBeats = site(MIFDataBeats))
       case NTiles => Knob("NTILES")
+      case NChips => Dump("NCHIPS", 1)
       case NMemoryChannels => Dump("N_MEM_CHANNELS", 1)
       case TMemoryChannels => BusType.AXI
       case NBanksPerMemoryChannel => Knob("NBANKS_PER_MEM_CHANNEL")
@@ -519,10 +520,15 @@ class WithStreamLoopback extends Config(
 
 class WithDisaggregatedMemory extends Config(
   (pname, site, here) => pname match {
-    case NChips => Dump("NCHIPS", 2)
     case NDisaggMemClients => site(NChips)
-    case NDisaggMemChannels => 1
+    case NDisaggMemChannels => Dump("N_DISAGG_MEM_CHANNELS", 1)
     case NExtMMIOTLChannels => 1
+    case DisaggMemBlackBoxNetwork => false
+  })
+
+class WithNChips(n: Int) extends Config(
+  (pname, site, here) => pname match {
+    case NChips => Dump("NCHIPS", n)
   })
 
 class DmaControllerConfig extends Config(new WithDmaController ++ new WithStreamLoopback ++ new DefaultL2Config)
@@ -545,5 +551,5 @@ class SplitL2MetadataTestConfig extends Config(new WithSplitL2Metadata ++ new De
 class DualCoreConfig extends Config(
   new WithNCores(2) ++ new WithL2Cache ++ new BaseConfig)
 
-class DisaggMemConfig extends Config(
-  new WithDisaggregatedMemory ++ new BaseConfig)
+class DualChipConfig extends Config(
+  new WithNChips(2) ++ new WithDisaggregatedMemory ++ new BaseConfig)

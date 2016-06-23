@@ -52,7 +52,73 @@ extern "A" void memory_tick
   output reg [`MEM_ID_BITS-1:0]   b_id
 );
 
-module rocketTestHarness;
+module BlackBoxTileLinkNetwork(
+  input clock,
+  input reset,
+
+  input         tl_in_0_acquire_valid,
+  output        tl_in_0_acquire_ready,
+  input  [ 1:0] tl_in_0_acquire_bits_client_xact_id,
+  input         tl_in_0_acquire_bits_is_builtin_type,
+  input  [ 2:0] tl_in_0_acquire_bits_a_type,
+  input  [25:0] tl_in_0_acquire_bits_addr_block,
+  input  [ 2:0] tl_in_0_acquire_bits_addr_beat,
+  input  [11:0] tl_in_0_acquire_bits_union,
+  input  [63:0] tl_in_0_acquire_bits_data,
+
+  output        tl_in_0_grant_valid,
+  input         tl_in_0_grant_ready,
+  output [ 1:0] tl_in_0_grant_bits_client_xact_id,
+  output        tl_in_0_grant_bits_manager_xact_id,
+  output        tl_in_0_grant_bits_is_builtin_type,
+  output [ 3:0] tl_in_0_grant_bits_g_type,
+  output [ 2:0] tl_in_0_grant_bits_addr_beat,
+  output [63:0] tl_in_0_grant_bits_data,
+
+  input         tl_in_1_acquire_valid,
+  output        tl_in_1_acquire_ready,
+  input  [ 1:0] tl_in_1_acquire_bits_client_xact_id,
+  input         tl_in_1_acquire_bits_is_builtin_type,
+  input  [ 2:0] tl_in_1_acquire_bits_a_type,
+  input  [25:0] tl_in_1_acquire_bits_addr_block,
+  input  [ 2:0] tl_in_1_acquire_bits_addr_beat,
+  input  [11:0] tl_in_1_acquire_bits_union,
+  input  [63:0] tl_in_1_acquire_bits_data,
+
+  output        tl_in_1_grant_valid,
+  input         tl_in_1_grant_ready,
+  output [ 1:0] tl_in_1_grant_bits_client_xact_id,
+  output        tl_in_1_grant_bits_manager_xact_id,
+  output        tl_in_1_grant_bits_is_builtin_type,
+  output [ 3:0] tl_in_1_grant_bits_g_type,
+  output [ 2:0] tl_in_1_grant_bits_addr_beat,
+  output [63:0] tl_in_1_grant_bits_data,
+
+  output        tl_out_0_acquire_valid,
+  input         tl_out_0_acquire_ready,
+  output [ 1:0] tl_out_0_acquire_bits_client_xact_id,
+  output        tl_out_0_acquire_bits_is_builtin_type,
+  output [ 2:0] tl_out_0_acquire_bits_a_type,
+  output [25:0] tl_out_0_acquire_bits_addr_block,
+  output [ 2:0] tl_out_0_acquire_bits_addr_beat,
+  output [11:0] tl_out_0_acquire_bits_union,
+  output [63:0] tl_out_0_acquire_bits_data,
+
+  input         tl_out_0_grant_valid,
+  output        tl_out_0_grant_ready,
+  input  [ 1:0] tl_out_0_grant_bits_client_xact_id,
+  input         tl_out_0_grant_bits_manager_xact_id,
+  input         tl_out_0_grant_bits_is_builtin_type,
+  input  [ 3:0] tl_out_0_grant_bits_g_type,
+  input  [ 2:0] tl_out_0_grant_bits_addr_beat,
+  input  [63:0] tl_out_0_grant_bits_data
+);
+
+// RapidIO goes here
+
+endmodule
+
+module multiChipTestHarness;
 
   reg [31:0] seed;
   initial seed = $get_initial_random_seed();

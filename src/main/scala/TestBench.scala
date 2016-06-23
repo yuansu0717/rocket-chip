@@ -9,7 +9,12 @@ import uncore.{DbBusConsts, DMKey}
 object TestBenchGeneration extends FileSystemUtilities {
   def generateVerilogFragment(
       topModuleName: String, configClassName: String, p: Parameters) = {
-    val nMemChannel = p(NMemoryChannels)
+    val multiChip = p(NChips) > 1
+    val nMemChannel = if (multiChip)
+      p(NMemoryChannels) * p(NChips) + p(NDisaggMemChannels)
+    else
+      p(NMemoryChannels)
+    val topName = if (multiChip) "MultiChipTop" else "Top"
     // YUNSUP:
     // I originally wrote this using a 2d wire array, but of course Synopsys'
     // DirectC implementation totally chokes on it when the 2d array is
@@ -198,7 +203,17 @@ object TestBenchGeneration extends FileSystemUtilities {
     val daw = p(DMKey).nDebugBusAddrSize
     val dow = DbBusConsts.dbOpSize
     val ddw = DbBusConsts.dbDataSize
-    val debug_bus = s"""
+    val debug_bus = if (multiChip) (0 until p(NChips)).map { i => s"""
+  .io_debug_${i}_req_ready( ),
+  .io_debug_${i}_req_valid(1'b0),
+  .io_debug_${i}_req_bits_addr($daw'b0),
+  .io_debug_${i}_req_bits_op($dow'b0),
+  .io_debug_${i}_req_bits_data($ddw'b0),
+  .io_debug_${i}_resp_ready(1'b0),
+  .io_debug_${i}_resp_valid( ),
+  .io_debug_${i}_resp_bits_resp( ),
+  .io_debug_${i}_resp_bits_data( ),
+""" }.mkString else s"""
   .io_debug_req_ready( ),
   .io_debug_req_valid(1'b0),
   .io_debug_req_bits_addr($daw'b0),
@@ -216,7 +231,7 @@ object TestBenchGeneration extends FileSystemUtilities {
   assign htif_clk = clk;
 `endif
 
-  Top dut
+  $topName dut
   (
     .clk(clk),
     .reset(reset),
