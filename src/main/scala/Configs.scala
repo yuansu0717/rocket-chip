@@ -539,3 +539,6 @@ class SplitL2MetadataTestConfig extends Config(new WithSplitL2Metadata ++ new De
 
 class DualCoreConfig extends Config(
   new WithNCores(2) ++ new WithL2Cache ++ new BaseConfig)
+
+class RapidIOConfig extends Config(
+  new WithMIFDataBits(128) ++ new WithL2Cache ++ new BaseConfig)

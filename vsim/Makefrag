@@ -7,6 +7,7 @@
 sim_vsrcs = \
 	$(generated_dir)/$(MODEL).$(CONFIG).v \
 	$(generated_dir)/consts.$(CONFIG).vh \
+	$(base_dir)/vsrc/rapidio.v \
 	$(base_dir)/vsrc/$(TB).v \
 
 # C sources
