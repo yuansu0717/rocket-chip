@@ -334,3 +334,30 @@ class DirectMemtestFPGAConfig extends Config(
   new FPGAConfig ++ new DirectMemtestConfig)
 class DirectComparatorFPGAConfig extends Config(
   new FPGAConfig ++ new DirectComparatorConfig)
+
+class WithFakeCache extends Config(
+  (pname, site, here) => pname match {
+    case BuildTiles => {
+      val groundtest = if (site(XLen) == 64)
+        DefaultTestSuites.groundtest64
+      else
+        DefaultTestSuites.groundtest32
+      TestGeneration.addSuite(groundtest("p"))
+      TestGeneration.addSuite(DefaultTestSuites.emptyBmarks)
+      (0 until site(NTiles)).map { i =>
+        (r: Bool, p: Parameters) => {
+          Module(new FakeCacheTile(r)(p.alterPartial({
+            case TLId => "L1toL2"
+            case NCachedTileLinkPorts => 1
+            case NUncachedTileLinkPorts => 1
+          })))
+        }
+      }
+    }
+  })
+
+class FakeCacheTestConfig extends Config(new WithFakeCache ++ new BaseConfig)
+class FakeCacheTestL2Config extends Config(
+  new WithL2Capacity(128) ++ new WithL2Cache ++ new FakeCacheTestConfig)
+class FakeCacheTestBufferlessConfig extends Config(
+  new WithBufferlessBroadcastHub ++ new FakeCacheTestConfig)
