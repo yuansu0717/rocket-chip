@@ -358,3 +358,13 @@ class DirectMemtestFPGAConfig extends Config(
   new FPGAConfig ++ new DirectMemtestConfig)
 class DirectComparatorFPGAConfig extends Config(
   new FPGAConfig ++ new DirectComparatorConfig)
+
+class WithSimpleTest extends Config(
+  (pname, site, here) => pname match {
+    case GroundTestKey => Seq.fill(site(NTiles)) {
+      GroundTestTileSettings(uncached = 1)
+    }
+    case BuildGroundTest =>
+      (p: Parameters) => Module(new SimpleTest()(p))
+    case _ => throw new CDEMatchError
+  })
