@@ -89,14 +89,10 @@ class JTAGVPI(implicit val p: Parameters) extends BlackBox {
   def connect(dutio: JTAGIO, tbreset: Bool, tbsuccess: Bool) = {
     dutio <> io.jtag
 
-    // To be proper,
-    // TRST should really be synchronized
-    // with TCK. But this is a fairly
-    // accurate representation of how
-    // HW may drive this signal.
-    // Neither OpenOCD nor JtagVPI drive TRST.
-
+    // Neither OpenOCD nor JtagVPI drive TRST,
+    // but this design should work even without TRST.
     dutio.TRSTn  := ~tbreset
+
     io.enable    := ~tbreset
     io.init_done := ~tbreset
 

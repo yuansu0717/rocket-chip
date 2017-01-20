@@ -19,30 +19,30 @@ object dtmJTAGAddrs {
 }
 
 class DebugAccessUpdate(addrBits: Int) extends Bundle {
-  val op = UInt(width = DbBusConsts.dbOpSize)
-  val data = UInt(width = DbBusConsts.dbDataSize)
   val addr = UInt(width = addrBits)
+  val data = UInt(width = DbBusConsts.dbDataSize)
+  val op = UInt(width = DbBusConsts.dbOpSize)
 
   override def cloneType = new DebugAccessUpdate(addrBits).asInstanceOf[this.type]
 }
 
 class DebugAccessCapture(addrBits: Int) extends Bundle {
-  val resp = UInt(width = DbBusConsts.dbRespSize)
-  val data = UInt(width = DbBusConsts.dbDataSize)
   val addr = UInt(width = addrBits)
+  val data = UInt(width = DbBusConsts.dbDataSize)
+  val resp = UInt(width = DbBusConsts.dbRespSize)
 
   override def cloneType = new DebugAccessCapture(addrBits).asInstanceOf[this.type]
 
 }
 
 class DTMInfo extends Bundle {
-  val debugVersion = UInt(width = 4)
-  val debugAddrBits = UInt(width = 4)
-  val dbusStatus = UInt(width = 2)
-  val dbusIdleCycles = UInt(width = 3)
-  val reserved0 = UInt(width = 3)
-  val dbusreset = Bool()
   val reserved1 = UInt(width = 15)
+  val dbusreset = Bool()
+  val reserved0 = UInt(width = 3)
+  val dbusIdleCycles = UInt(width = 3)
+  val dbusStatus = UInt(width = 2)
+  val debugAddrBits = UInt(width = 4)
+  val debugVersion = UInt(width = 4)
 }
 
 class DebugTransportModuleJTAG(
@@ -57,6 +57,7 @@ class DebugTransportModuleJTAG(
   val io = new Bundle {
     val dbus = new DebugBusIO()(p)
     val jtag = Flipped(new JTAGIO())
+    val jtagPOReset = Bool(INPUT)
     val fsmReset = Bool(OUTPUT)
   }
 
@@ -209,6 +210,10 @@ class DebugTransportModuleJTAG(
                        dtmJTAGAddrs.DTM_INFO -> dtmInfoChain),
     idcode = Some((dtmJTAGAddrs.IDCODE, JtagIdcode(idcodeVersion, idcodePartNum, idcodeManufId))))
 
+  tapIO.jtag <> io.jtag
+
+  tapIO.control.jtagPOReset := io.jtagPOReset
+
   //--------------------------------------------------------
   // Reset Generation (this is fed back to us by the instantiating module,
   // and is used to reset the debug registers).
@@ -234,7 +239,7 @@ class DebugTransportModuleJTAG(
  *    Chisel domain with the DRV_TDO signal).
  *
  *  The 'TRST' input is used to asynchronously
- *  reset the JTAG TAP.
+ *  reset the JTAG TAP. 
  *  This design requires that TRST be
  *  synchronized to TCK (for de-assert) outside
  *  of this module. 
@@ -254,6 +259,7 @@ class JtagDTMWithSync(implicit val p: Parameters) extends Module {
     val jtag = Flipped(new JTAGIO())
     val debug = new AsyncDebugBusIO
     val fsmReset = Bool(OUTPUT)
+    val jtagPOReset = Bool(INPUT)
   }
 
   val jtag_dtm = Module(new DebugTransportModuleJTAG(
@@ -261,6 +267,7 @@ class JtagDTMWithSync(implicit val p: Parameters) extends Module {
     debugIdleCycles = 5)(p))
 
   jtag_dtm.io.jtag <> io.jtag
+  jtag_dtm.io.jtagPOReset := io.jtagPOReset
 
   val io_debug_bus = Wire (new DebugBusIO)
   io.debug <> ToAsyncDebugBus(io_debug_bus)
