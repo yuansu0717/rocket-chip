@@ -8,7 +8,7 @@ import diplomacy._
 import uncore.tilelink2._
 import uncore.devices._
 import util._
-import junctions.JTAGIO
+import jtag.JTAGIO
 import coreplex._
 
 /// Core with JTAG for debug only
@@ -21,7 +21,7 @@ trait PeripheryJTAG extends TopNetwork {
 trait PeripheryJTAGBundle extends TopNetworkBundle {
   val outer: PeripheryJTAG
 
-  val jtag = new JTAGIO(true).flip
+  val jtag = new JTAGIO().flip
 }
 
 trait PeripheryJTAGModule extends TopNetworkModule {
@@ -33,7 +33,8 @@ trait PeripheryJTAGModule extends TopNetworkModule {
   outer.coreplex.module.io.debug <> dtm.io.debug
 
   dtm.clock := io.jtag.TCK
-  dtm.reset := io.jtag.TRST
+  dtm.reset := dtm.io.fsmReset
+  dtm.io.jtagPOReset := Bool(false)
 }
 
 /// Core with DTM for debug only
@@ -67,7 +68,7 @@ trait PeripheryDebugBundle extends TopNetworkBundle {
   val outer: PeripheryDebug
 
   val debug = (!p(IncludeJtagDTM)).option(new DebugBusIO().flip)
-  val jtag = (p(IncludeJtagDTM)).option(new JTAGIO(true).flip)
+  val jtag = (p(IncludeJtagDTM)).option(new JTAGIO().flip)
 }
 
 trait PeripheryDebugModule extends TopNetworkModule {
@@ -78,8 +79,9 @@ trait PeripheryDebugModule extends TopNetworkModule {
   io.jtag.foreach { jtag =>
     val dtm = Module (new JtagDTMWithSync)
     dtm.clock := jtag.TCK
-    dtm.reset := jtag.TRST
+    dtm.reset := dtm.io.fsmReset
     dtm.io.jtag <> jtag
+    dtm.io.jtagPOReset := Bool(false)
     outer.coreplex.module.io.debug <> dtm.io.debug
   }
 }
