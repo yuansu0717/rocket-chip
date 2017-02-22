@@ -29,23 +29,23 @@ class JtagDTMKeyDefault extends JtagDTMConfig(
 object dtmJTAGAddrs {
   def IDCODE       = 0x1
   def DTM_INFO     = 0x10
-  def DEBUG_ACCESS = 0x11
+  def DMI_ACCESS = 0x11
 }
 
-class DebugAccessUpdate(addrBits: Int) extends Bundle {
+class DMIAccessUpdate(addrBits: Int) extends Bundle {
   val addr = UInt(width = addrBits)
   val data = UInt(width = DbBusConsts.dbDataSize)
   val op = UInt(width = DbBusConsts.dbOpSize)
 
-  override def cloneType = new DebugAccessUpdate(addrBits).asInstanceOf[this.type]
+  override def cloneType = new DMIAccessUpdate(addrBits).asInstanceOf[this.type]
 }
 
-class DebugAccessCapture(addrBits: Int) extends Bundle {
+class DMIAccessCapture(addrBits: Int) extends Bundle {
   val addr = UInt(width = addrBits)
   val data = UInt(width = DbBusConsts.dbDataSize)
   val resp = UInt(width = DbBusConsts.dbRespSize)
 
-  override def cloneType = new DebugAccessCapture(addrBits).asInstanceOf[this.type]
+  override def cloneType = new DMIAccessCapture(addrBits).asInstanceOf[this.type]
 
 }
 
@@ -84,8 +84,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   val busy = Wire(Bool())
   val nonzeroResp = Wire(Bool())
 
-  val busyResp = Wire(new DebugAccessCapture(debugAddrBits))
-  val nonbusyResp = Wire(new DebugAccessCapture(debugAddrBits))
+  val busyResp = Wire(new DMIAccessCapture(debugAddrBits))
+  val nonbusyResp = Wire(new DMIAccessCapture(debugAddrBits))
 
   val dmiReqReg  = Reg(new DebugBusReq(debugAddrBits))
   val dmiReqValidReg = Reg(init = Bool(false));
@@ -111,8 +111,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   //--------------------------------------------------------
   // Debug Access Chain Declaration
 
-   val debugAccessChain = Module(CaptureUpdateChain(genCapture = new DebugAccessCapture(debugAddrBits),
-     genUpdate = new DebugAccessUpdate(debugAddrBits)))
+   val dmiAccessChain = Module(CaptureUpdateChain(genCapture = new DMIAccessCapture(debugAddrBits),
+     genUpdate = new DMIAccessUpdate(debugAddrBits)))
 
   //--------------------------------------------------------
   // Debug Access Support
@@ -137,11 +137,11 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   // Downgrade/Skip. We make the decision to downgrade or skip
   // during every CAPTURE_DR, and use the result in UPDATE_DR.
   // The sticky versions are reset by write to dmiReset in DTM_INFO.
-    when (debugAccessChain.io.update.valid) {
+    when (dmiAccessChain.io.update.valid) {
       skipOpReg := Bool(false)
       downgradeOpReg := Bool(false)
     }
-    when (debugAccessChain.io.capture.capture) {
+    when (dmiAccessChain.io.capture.capture) {
       skipOpReg := busy
       downgradeOpReg := (!busy & nonzeroResp)
       stickyBusyReg := busy
@@ -170,12 +170,12 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   //--------------------------------------------------------
   // Debug Access Chain Implementation
 
-   debugAccessChain.io.capture.bits := Mux(busy, busyResp, nonbusyResp)
-   when (debugAccessChain.io.update.valid) {
+   dmiAccessChain.io.capture.bits := Mux(busy, busyResp, nonbusyResp)
+   when (dmiAccessChain.io.update.valid) {
      skipOpReg := Bool(false)
      downgradeOpReg := Bool(false)
    }
-   when (debugAccessChain.io.capture.capture) {
+   when (dmiAccessChain.io.capture.capture) {
        skipOpReg := busy
        downgradeOpReg := (!busy & nonzeroResp)
        stickyBusyReg := busy
@@ -185,7 +185,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   //--------------------------------------------------------
   // Drive Ready Valid Interface
 
-   when (debugAccessChain.io.update.valid) {
+   when (dmiAccessChain.io.update.valid) {
      when (skipOpReg) {
        // Do Nothing
      }.otherwise {
@@ -194,7 +194,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
          dmiReqReg.data := UInt(0)
          dmiReqReg.op   := UInt(0)
        }.otherwise {
-         dmiReqReg := debugAccessChain.io.update.bits
+         dmiReqReg := dmiAccessChain.io.update.bits
        }
        dmiReqValidReg := Bool(true)
      }
@@ -204,7 +204,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
      }
    }
 
-  io.dmi.resp.ready := debugAccessChain.io.capture.capture
+  io.dmi.resp.ready := dmiAccessChain.io.capture.capture
   io.dmi.req.valid := dmiReqValidReg
 
   // This is a name-based, not type-based assignment. Do these still work?
@@ -214,8 +214,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   // Actual JTAG TAP
 
   val tapIO = JtagTapGenerator(irLength = 5,
-    instructions = Map(dtmJTAGAddrs.DEBUG_ACCESS -> debugAccessChain,
-                       dtmJTAGAddrs.DTM_INFO -> dtmInfoChain),
+    instructions = Map(dtmJTAGAddrs.DMI_ACCESS -> dmiAccessChain,
+                       dtmJTAGAddrs.DTM_INFO   -> dtmInfoChain),
     idcode = Some((dtmJTAGAddrs.IDCODE, JtagIdcode(c.idcodeVersion, c.idcodePartNum, c.idcodeManufId))))
 
   tapIO.jtag <> io.jtag
@@ -272,7 +272,7 @@ class JtagDTMWithSync(implicit val p: Parameters) extends Module {
 
   val jtag_dtm = Module(new DebugTransportModuleJTAG(
     debugAddrBits  = p(DMKey).nDebugBusAddrSize,
-    p(JtagDTMKey))(p))
+    c = p(JtagDTMKey))(p))
 
   jtag_dtm.io.jtag <> io.jtag
   jtag_dtm.io.jtagPOReset := io.jtagPOReset
