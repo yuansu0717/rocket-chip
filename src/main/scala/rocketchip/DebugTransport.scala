@@ -12,6 +12,20 @@ import uncore.devices.{DbBusConsts, DebugBusReq, DebugBusResp}
 
 case object IncludeJtagDTM extends Field[Boolean]
 
+case class JtagDTMConfig (
+  idcodeVersion    : Int,      // chosen by manuf.
+  idcodePartNum    : Int,      // Chosen by manuf.
+  idcodeManufId    : Int,      // Assigned by JEDEC
+  debugIdleCycles  : Int)
+
+case object JtagDTMKey extends Field[JtagDTMConfig]
+
+class JtagDTMKeyDefault extends JtagDTMConfig(
+  idcodeVersion = 0,
+  idcodePartNum = 0,
+  idcodeManufId = 0,
+  debugIdleCycles = 5) // Reasonable guess for synchronization.
+
 object dtmJTAGAddrs {
   def IDCODE       = 0x1
   def DTM_INFO     = 0x10
@@ -45,13 +59,8 @@ class DTMInfo extends Bundle {
   val debugVersion = UInt(4.W)
 }
 
-class DebugTransportModuleJTAG(
-  idcodeVersion    : Int = 1,
-  idcodePartNum    : Int, // 0xE31, // Reference to Freedom Everywhere Coreplex
-  idcodeManufId    : Int, // Assigned by JEDEC
-  debugAddrBits    : Int = 5,  // Spec allows 5-7
-  debugIdleCycles  : Int = 5
-) (implicit val p: Parameters) extends Module  {
+class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
+  (implicit val p: Parameters) extends Module  {
 
   val io = new Bundle {
     val dmi = new DebugBusIO()(p)
@@ -91,7 +100,7 @@ class DebugTransportModuleJTAG(
   dtmInfo.debugVersion   := 1.U // This implements version 1 of the spec.
   dtmInfo.debugAddrBits  := UInt(debugAddrBits)
   dtmInfo.dmiStatus     := dmiStatus
-  dtmInfo.dmiIdleCycles := UInt(debugIdleCycles)
+  dtmInfo.dmiIdleCycles := UInt(c.debugIdleCycles)
   dtmInfo.reserved0      := 0.U
   dtmInfo.dmireset      := false.B // This is write-only
   dtmInfo.reserved1      := 0.U
@@ -207,7 +216,7 @@ class DebugTransportModuleJTAG(
   val tapIO = JtagTapGenerator(irLength = 5,
     instructions = Map(dtmJTAGAddrs.DEBUG_ACCESS -> debugAccessChain,
                        dtmJTAGAddrs.DTM_INFO -> dtmInfoChain),
-    idcode = Some((dtmJTAGAddrs.IDCODE, JtagIdcode(idcodeVersion, idcodePartNum, idcodeManufId))))
+    idcode = Some((dtmJTAGAddrs.IDCODE, JtagIdcode(c.idcodeVersion, c.idcodePartNum, c.idcodeManufId))))
 
   tapIO.jtag <> io.jtag
 
@@ -263,9 +272,7 @@ class JtagDTMWithSync(implicit val p: Parameters) extends Module {
 
   val jtag_dtm = Module(new DebugTransportModuleJTAG(
     debugAddrBits  = p(DMKey).nDebugBusAddrSize,
-    idcodePartNum  = 0xE31,
-    idcodeManufId  = 0x489,
-    debugIdleCycles = 5)(p))
+    p(JtagDTMKey))(p))
 
   jtag_dtm.io.jtag <> io.jtag
   jtag_dtm.io.jtagPOReset := io.jtagPOReset
