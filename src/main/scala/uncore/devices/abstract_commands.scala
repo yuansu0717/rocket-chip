@@ -1,0 +1,64 @@
+package uncore.devices
+
+import Chisel._
+
+// This file was auto-generated from the repository at https://github.com/sifive/riscv-debug-spec.git,
+// 'make chisel'
+
+object AC_RegAddrs {
+}
+
+class AC_ACCESS_REGISTERFields extends Bundle {
+
+  /* This is 0 to indicate Access Register Command.
+  */
+  val _type = UInt(8.W)
+
+  val reserved0 = UInt(2.W)
+
+  /* 2: Access the lowest 32 bits of the register.
+
+            3: Access the lowest 64 bits of the register.
+
+            4: Access the lowest 128 bits of the register.
+
+            If \Fsize specifies a size larger than the register is, then the
+            access must fail. If a register is accessible, then \Fsize matching
+            the register's actual size must be supported.
+  */
+  val size = UInt(3.W)
+
+  /* When 1, execute the program in the Program Buffer exactly once
+            before performing the read/write.
+  */
+  val preexec = Bool()
+
+  /* When 1, execute the program in the Program Buffer exactly once
+            after performing the read/write.
+  */
+  val postexec = Bool()
+
+  /* 0: Copy data from the specified register into {\tt arg0} portion
+               of {\tt data}.
+
+            1: Copy data from {\tt arg0} portion of {\tt data} into the
+               specified register.
+  */
+  val write = Bool()
+
+  /* Number of the register to access, as described in Table~\ref{tab:regno}.
+  */
+  val regno = UInt(16.W)
+
+}
+
+class AC_QUICK_ACCESSFields extends Bundle {
+
+  /* This is 1 to indicate Quick Access command.
+  */
+  val _type = UInt(8.W)
+
+  val reserved0 = UInt(24.W)
+
+}
+
