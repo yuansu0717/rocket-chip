@@ -33,7 +33,7 @@ trait CoreplexRISCVPlatform extends CoreplexNetwork {
 trait CoreplexRISCVPlatformBundle extends CoreplexNetworkBundle {
   val outer: CoreplexRISCVPlatform
 
-  val debug = new AsyncDebugBusIO().flip
+  val debug = new AsyncDMIIO().flip
   val rtcToggle = Bool(INPUT)
   val resetVector = UInt(INPUT, p(XLen))
 }
@@ -43,7 +43,7 @@ trait CoreplexRISCVPlatformModule extends CoreplexNetworkModule {
   val io: CoreplexRISCVPlatformBundle
 
   // Synchronize the debug bus into the coreplex
-  outer.debug.module.io.db <> FromAsyncDebugBus(io.debug)
+  outer.debug.module.io.dmi <> FromAsyncDMI(io.debug)
 
   // Synchronize the rtc into the coreplex
   val rtcSync = ShiftRegister(io.rtcToggle, 3)

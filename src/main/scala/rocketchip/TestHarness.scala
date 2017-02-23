@@ -64,11 +64,11 @@ class SimDTM(implicit p: Parameters) extends BlackBox {
   val io = new Bundle {
     val clk = Clock(INPUT)
     val reset = Bool(INPUT)
-    val debug = new uncore.devices.DebugBusIO
+    val debug = new uncore.devices.DMIIO
     val exit = UInt(OUTPUT, 32)
   }
 
-  def connect(tbclk: Clock, tbreset: Bool, dutio: uncore.devices.DebugBusIO, tbsuccess: Bool) = {
+  def connect(tbclk: Clock, tbreset: Bool, dutio: uncore.devices.DMIIO, tbsuccess: Bool) = {
     io.clk := tbclk
     io.reset := tbreset
     dutio <> io.debug

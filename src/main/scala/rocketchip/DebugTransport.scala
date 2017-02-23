@@ -8,7 +8,7 @@ import junctions._
 import util._
 import config._
 import jtag._
-import uncore.devices.{DbBusConsts, DebugBusReq, DebugBusResp}
+import uncore.devices.{DMIConsts, DMIReq, DMIResp}
 
 case object IncludeJtagDTM extends Field[Boolean]
 
@@ -34,16 +34,16 @@ object dtmJTAGAddrs {
 
 class DMIAccessUpdate(addrBits: Int) extends Bundle {
   val addr = UInt(width = addrBits)
-  val data = UInt(width = DbBusConsts.dbDataSize)
-  val op = UInt(width = DbBusConsts.dbOpSize)
+  val data = UInt(width = DMIConsts.dmiDataSize)
+  val op = UInt(width = DMIConsts.dmiOpSize)
 
   override def cloneType = new DMIAccessUpdate(addrBits).asInstanceOf[this.type]
 }
 
 class DMIAccessCapture(addrBits: Int) extends Bundle {
   val addr = UInt(width = addrBits)
-  val data = UInt(width = DbBusConsts.dbDataSize)
-  val resp = UInt(width = DbBusConsts.dbRespSize)
+  val data = UInt(width = DMIConsts.dmiDataSize)
+  val resp = UInt(width = DMIConsts.dmiRespSize)
 
   override def cloneType = new DMIAccessCapture(addrBits).asInstanceOf[this.type]
 
@@ -63,7 +63,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   (implicit val p: Parameters) extends Module  {
 
   val io = new Bundle {
-    val dmi = new DebugBusIO()(p)
+    val dmi = new DMIIO()(p)
     val jtag = Flipped(new JTAGIO())
     val jtagPOReset = Bool(INPUT)
     val fsmReset = Bool(OUTPUT)
@@ -87,7 +87,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   val busyResp = Wire(new DMIAccessCapture(debugAddrBits))
   val nonbusyResp = Wire(new DMIAccessCapture(debugAddrBits))
 
-  val dmiReqReg  = Reg(new DebugBusReq(debugAddrBits))
+  val dmiReqReg  = Reg(new DMIReq(debugAddrBits))
   val dmiReqValidReg = Reg(init = Bool(false));
 
   val dmiStatus = Wire(UInt(width = 2))
@@ -260,27 +260,27 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
 
 class JtagDTMWithSync(implicit val p: Parameters) extends Module {
 
-  // io.DebugBusIO <-> Sync <-> DebugBusIO <-> DTM
+  // io.DMIIO <-> Sync <-> DMIIO <-> DTM
 
   val io = new Bundle {
     // This should be flip.
     val jtag = Flipped(new JTAGIO())
-    val debug = new AsyncDebugBusIO
+    val debug = new AsyncDMIIO
     val fsmReset = Bool(OUTPUT)
     val jtagPOReset = Bool(INPUT)
   }
 
   val jtag_dtm = Module(new DebugTransportModuleJTAG(
-    debugAddrBits  = p(DMKey).nDebugBusAddrSize,
+    debugAddrBits  = p(DMKey).nDMIAddrSize,
     c = p(JtagDTMKey))(p))
 
   jtag_dtm.io.jtag <> io.jtag
   jtag_dtm.io.jtagPOReset := io.jtagPOReset
 
-  val io_debug_bus = Wire (new DebugBusIO)
-  io.debug <> ToAsyncDebugBus(io_debug_bus)
+  val io_dmi = Wire (new DMIIO)
+  io.debug <> ToAsyncDMI(io_dmi)
 
-  io_debug_bus <> jtag_dtm.io.dmi
+  io_dmi <> jtag_dtm.io.dmi
 
   io.fsmReset := jtag_dtm.io.fsmReset
 }

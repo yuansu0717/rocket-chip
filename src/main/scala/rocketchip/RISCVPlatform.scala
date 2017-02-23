@@ -47,14 +47,14 @@ trait PeripheryDTM extends TopNetwork {
 trait PeripheryDTMBundle extends TopNetworkBundle {
   val outer: PeripheryDTM
 
-  val debug = new DebugBusIO().flip
+  val debug = new DMIIO().flip
 }
 
 trait PeripheryDTMModule extends TopNetworkModule {
   val outer: PeripheryDTM
   val io: PeripheryDTMBundle
 
-  outer.coreplex.module.io.debug <> ToAsyncDebugBus(io.debug)
+  outer.coreplex.module.io.debug <> ToAsyncDMI(io.debug)
 }
 
 /// Core with DTM or JTAG based on a parameter
@@ -67,7 +67,7 @@ trait PeripheryDebug extends TopNetwork {
 trait PeripheryDebugBundle extends TopNetworkBundle {
   val outer: PeripheryDebug
 
-  val debug = (!p(IncludeJtagDTM)).option(new DebugBusIO().flip)
+  val debug = (!p(IncludeJtagDTM)).option(new DMIIO().flip)
   val jtag = (p(IncludeJtagDTM)).option(new JTAGIO().flip)
 }
 
@@ -75,7 +75,7 @@ trait PeripheryDebugModule extends TopNetworkModule {
   val outer: PeripheryDebug
   val io: PeripheryDebugBundle
 
-  io.debug.foreach { dbg => outer.coreplex.module.io.debug <> ToAsyncDebugBus(dbg) }
+  io.debug.foreach { dbg => outer.coreplex.module.io.debug <> ToAsyncDMI(dbg) }
   io.jtag.foreach { jtag =>
     val dtm = Module (new JtagDTMWithSync)
     dtm.clock := jtag.TCK
