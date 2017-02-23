@@ -212,7 +212,7 @@ object DMI_RegAddrs {
 
 }
 
-class DMI_DMCONTROLFields extends Bundle {
+class DMCONTROLFields extends Bundle {
 
   /* Halt request signal for the hart selected by \Fhartsel. When 1, the
             hart will halt if it's not currently halted.
@@ -316,7 +316,7 @@ class DMI_DMCONTROLFields extends Bundle {
 
 }
 
-class DMI_HARTINFOFields extends Bundle {
+class HARTINFOFields extends Bundle {
 
   val reserved0 = UInt(15.W)
 
@@ -347,7 +347,7 @@ class DMI_HARTINFOFields extends Bundle {
 
 }
 
-class DMI_HALTSUMFields extends Bundle {
+class HALTSUMFields extends Bundle {
 
   val halt1023_992 = Bool()
 
@@ -415,7 +415,7 @@ class DMI_HALTSUMFields extends Bundle {
 
 }
 
-class DMI_SBCSFields extends Bundle {
+class SBCSFields extends Bundle {
 
   val reserved0 = UInt(11.W)
 
@@ -502,7 +502,7 @@ class DMI_SBCSFields extends Bundle {
 
 }
 
-class DMI_SBADDRESS0Fields extends Bundle {
+class SBADDRESS0Fields extends Bundle {
 
   /* Accesses bits 31:0 of the internal address.
   */
@@ -510,7 +510,7 @@ class DMI_SBADDRESS0Fields extends Bundle {
 
 }
 
-class DMI_SBADDRESS1Fields extends Bundle {
+class SBADDRESS1Fields extends Bundle {
 
   /* Accesses bits 63:32 of the internal address (if the system address
             bus is that wide).
@@ -519,7 +519,7 @@ class DMI_SBADDRESS1Fields extends Bundle {
 
 }
 
-class DMI_SBADDRESS2Fields extends Bundle {
+class SBADDRESS2Fields extends Bundle {
 
   /* Accesses bits 95:64 of the internal address (if the system address
             bus is that wide).
@@ -528,7 +528,7 @@ class DMI_SBADDRESS2Fields extends Bundle {
 
 }
 
-class DMI_SBDATA0Fields extends Bundle {
+class SBDATA0Fields extends Bundle {
 
   /* Accesses bits 31:0 of the internal data.
   */
@@ -536,7 +536,7 @@ class DMI_SBDATA0Fields extends Bundle {
 
 }
 
-class DMI_SBDATA1Fields extends Bundle {
+class SBDATA1Fields extends Bundle {
 
   /* Accesses bits 63:32 of the internal data (if the system bus is
             that wide).
@@ -545,7 +545,7 @@ class DMI_SBDATA1Fields extends Bundle {
 
 }
 
-class DMI_SBDATA2Fields extends Bundle {
+class SBDATA2Fields extends Bundle {
 
   /* Accesses bits 95:64 of the internal data (if the system bus is
             that wide).
@@ -554,7 +554,7 @@ class DMI_SBDATA2Fields extends Bundle {
 
 }
 
-class DMI_SBDATA3Fields extends Bundle {
+class SBDATA3Fields extends Bundle {
 
   /* Accesses bits 127:96 of the internal data (if the system bus is
             that wide).
@@ -563,13 +563,13 @@ class DMI_SBDATA3Fields extends Bundle {
 
 }
 
-class DMI_AUTHDATAFields extends Bundle {
+class AUTHDATAFields extends Bundle {
 
   val data = UInt(32.W)
 
 }
 
-class DMI_ABSTRACTCSFields extends Bundle {
+class ABSTRACTCSFields extends Bundle {
 
   val reserved0 = UInt(16.W)
 
@@ -632,12 +632,12 @@ class DMI_ABSTRACTCSFields extends Bundle {
 
 }
 
-class DMI_COMMANDFields extends Bundle {
+class COMMANDFields extends Bundle {
 
   /* The type determines the overall functionality of this
             abstract command.
   */
-  val _type = UInt(8.W)
+  val cmdtype = UInt(8.W)
 
   /* This field is interpreted in a command-specific manner,
             described for each abstract command.
@@ -646,19 +646,19 @@ class DMI_COMMANDFields extends Bundle {
 
 }
 
-class DMI_DATA0Fields extends Bundle {
+class DATA0Fields extends Bundle {
 
   val data = UInt(32.W)
 
 }
 
-class DMI_SERDATAFields extends Bundle {
+class SERDATAFields extends Bundle {
 
   val data = UInt(32.W)
 
 }
 
-class DMI_SERCSFields extends Bundle {
+class SERCSFields extends Bundle {
 
   /* Number of supported serial ports.
   */
@@ -710,7 +710,7 @@ class DMI_SERCSFields extends Bundle {
 
 }
 
-class DMI_PROGBUFCSFields extends Bundle {
+class PROGBUFCSFields extends Bundle {
 
   val reserved0 = UInt(28.W)
 
@@ -726,7 +726,7 @@ class DMI_PROGBUFCSFields extends Bundle {
 
 }
 
-class DMI_PROGBUF0Fields extends Bundle {
+class PROGBUF0Fields extends Bundle {
 
   val data = UInt(32.W)
 

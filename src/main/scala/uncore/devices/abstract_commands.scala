@@ -8,11 +8,11 @@ import Chisel._
 object AC_RegAddrs {
 }
 
-class AC_ACCESS_REGISTERFields extends Bundle {
+class ACCESS_REGISTERFields extends Bundle {
 
   /* This is 0 to indicate Access Register Command.
   */
-  val _type = UInt(8.W)
+  val cmdtype = UInt(8.W)
 
   val reserved0 = UInt(2.W)
 
@@ -52,11 +52,11 @@ class AC_ACCESS_REGISTERFields extends Bundle {
 
 }
 
-class AC_QUICK_ACCESSFields extends Bundle {
+class QUICK_ACCESSFields extends Bundle {
 
   /* This is 1 to indicate Quick Access command.
   */
-  val _type = UInt(8.W)
+  val cmdtype = UInt(8.W)
 
   val reserved0 = UInt(24.W)
 

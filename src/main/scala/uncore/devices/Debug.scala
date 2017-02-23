@@ -19,17 +19,17 @@ object DbBusConsts{
   def dbDataSize = 32
 
   def dbOpSize = 2
-  def db_OP_NONE            = UInt("b00")
-  def db_OP_READ            = UInt("b01")
-  def db_OP_WRITE           = UInt("b10")
+  def db_OP_NONE            = "b00".U
+  def db_OP_READ            = "b01".U
+  def db_OP_WRITE           = "b10".U
 
   def dbRespSize = 2
-  def db_RESP_SUCCESS     = UInt("b00")
-  def db_RESP_FAILURE     = UInt("b01")
-  def db_RESP_HW_FAILURE  = UInt("b10")
+  def db_RESP_SUCCESS     = "b00".U
+  def db_RESP_FAILURE     = "b01".U
+  def db_RESP_HW_FAILURE  = "b10".U
   // This is used outside this block
   // to indicate 'busy'.
-  def db_RESP_RESERVED    = UInt("b11")
+  def db_RESP_RESERVED    = "b11".U
 
 }
 
@@ -104,7 +104,7 @@ import DebugModuleHartStatus._
 case class DebugModuleConfig (
   nComponents        : Int,
   nDebugBusAddrSize  : Int,
-  nProgBufferWords   : Int,
+  nProgramBufferWords: Int,
   nAbstractDataWords : Int,
   hasBusMaster : Boolean,
   hasAccess128 : Boolean,
@@ -154,7 +154,7 @@ class DefaultDebugModuleConfig (val ncomponents : Int, val xlen:Int)
       nComponents = ncomponents,
       nDebugBusAddrSize = 5,
       //TODO: what should these values be.
-      nProgBufferWords   =  8,
+      nProgramBufferWords   =  8,
       nAbstractDataWords = xlen match{
         case 32  => 1 
         case 64  => 2
@@ -183,9 +183,9 @@ case object DMKey extends Field[DebugModuleConfig]
   */
 
 class DebugBusReq(addrBits : Int) extends Bundle {
-  val addr = UInt(width = addrBits)
-  val data = UInt(width = DbBusConsts.dbDataSize)
-  val op   = UInt(width = DbBusConsts.dbOpSize)
+  val addr = UInt(addrBits.W)
+  val data = UInt(DbBusConsts.dbDataSize.W)
+  val op   = UInt(DbBusConsts.dbOpSize.W)
 
   override def cloneType = new DebugBusReq(addrBits).asInstanceOf[this.type]
 }
@@ -193,8 +193,8 @@ class DebugBusReq(addrBits : Int) extends Bundle {
 /** Structure to define the contents of a Debug Bus Response
   */
 class DebugBusResp( ) extends Bundle {
-  val data = UInt(width = DbBusConsts.dbDataSize)
-  val resp = UInt(width = DbBusConsts.dbRespSize)
+  val data = UInt(DbBusConsts.dbDataSize.W)
+  val resp = UInt(DbBusConsts.dbRespSize.W)
 
 }
 
@@ -299,14 +299,11 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //--------------------------------------------------------------
 
   val debugIntRegs = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
-  val haltedRegs  = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
+  val haltedBitRegs  = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
 
-  val numHaltedStatus = ((cfg.nComponents - 1) / 32) + 1
+  val dbReq = io.db.req.bits
 
-  val haltedStatus   = Wire(Vec(numHaltedStatus, Bits(width = 32)))
-  val rdHaltedStatus = Wire(Bits(width = 32))
-
-  val haltedSummary = Cat(haltedStatus.map(_.orR).reverse)
+  val dbWrEn   = Wire(Bool())
 
   //--------------------------------------------------------------
   // DMI Registers 
@@ -314,29 +311,34 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   //----DMCONTROL
 
-  val DMCONTROLReset = (new DMI_DMCONTROLFields()).fromBits(0.U)
+  val DMCONTROLReset = (new DMCONTROLFields()).fromBits(0.U)
   DMCONTROLReset.authenticated := true.B // Not implemented
   DMCONTROLReset.version       := 1.U
-  val DMCONTROLReg = Reg(init = DMCONTROLReset)
+  val DMCONTROLReg = RegInit(DMCONTROLReset)
+
+  val unavailVec = Wire(Vec(cfg.nComponents, Bool()))
+  unavailVec := io.debugUnavail
 
   val DMCONTROLRdData = DMCONTROLReg
-  when (DMCONTROLReg.hartsel >== UInt(cfg.nComponents)) {
-    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Nonexistent
-  } .elsewhen (haltRegs(DMCONTROLReg.hartsel)) {
-    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Halted
-  } .elsewhen(io.debugUnavail(DMCONTROLReg.hartsel)) {
-    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Unavailable
+  when (DMCONTROLReg.hartsel >= cfg.nComponents.U) {
+    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.NonExistent.id.U
+  } .elsewhen (haltedBitRegs(DMCONTROLReg.hartsel)) {
+    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Halted.id.U
+  } .elsewhen(unavailVec(DMCONTROLReg.hartsel)) {
+    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Unavailable.id.U
   } .otherwise {
-    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Running
+    DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Running.id.U
   }
 
-  val ndresetCtrReg = Reg(UInt(cfg.nNDResetCycles), init = 0.U)
+  val ndresetCtrReg = RegInit(0.asUInt(cfg.nNDResetCycles.W))
 
   val DMCONTROLWrData = (new DMCONTROLFields()).fromBits(dbReq.data)
   val DMCONTROLWrEn   = dbWrEn & (dbReq.addr === DMI_DMCONTROL)
 
-  when (~DMCONTROLReg.dmactive) {
-    DMCONTROLReg := DMCONTROLReset.reset
+  val dmactive = DMCONTROLReg.dmactive
+
+  when (~dmactive) {
+    DMCONTROLReg := DMCONTROLReset
   } .otherwise {
     DMCONTROLReg.reset     := DMCONTROLWrData.reset
     DMCONTROLReg.haltreq   := DMCONTROLWrData.haltreq
@@ -344,30 +346,48 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   }
 
   // Put this last to override its own effects.
-  when (DMCTONROLWrEn) {
+  when (DMCONTROLWrEn) {
     DMCONTROLReg.dmactive := DMCONTROLWrData.dmactive
   }
 
   //----HARTINFO
 
-  val DMHARTINFORdData = (new DMHARTINFOFields()).fromBits(0.U)
+  val HARTINFORdData = (new HARTINFOFields()).fromBits(0.U)
   HARTINFORdData.dataaccess  := true.B
-  HARTINFORdData.datasize    := UInt(cfg.nAbstractDataWords)
-  HARTINFORdData.dataaddr    := UInt(0x400)//TODO--where.
+  HARTINFORdData.datasize    := cfg.nAbstractDataWords.U
+  HARTINFORdData.dataaddr    := DsbRegAddrs.DATA.U
 
-  //----HALTSUM
+  //----HALTSUM (and halted registers)
+  val numHaltedStatus = ((cfg.nComponents - 1) / 32) + 1
 
-  val HALTSUMRdData = (new DMI_HALTSUMFields()).fromBits(haltSummary)
+  val haltedStatus   = Wire(Vec(numHaltedStatus, Bits(width = 32)))
+
+  for (ii <- 0 until numHaltedStatus) {
+    haltedStatus(ii) := Cat(haltedBitRegs.slice(ii * 32, (ii + 1) * 32).reverse)
+  }
+
+  //TODO: Make this more efficient with masks vs arithmetic.
+  //TODO: Use something other than a magic number here.
+  val dbHaltedStatusIdx      = dbReq.addr - 0x40.U
+  val dbHaltedStatusIdxValid = dbHaltedStatusIdx < cfg.nComponents.U
+
+  val haltedStatusRdData = haltedStatus(dbHaltedStatusIdx)
+
+  val haltedSummary = Cat(haltedStatus.map(_.orR).reverse)
+
+  val HALTSUMRdData = (new HALTSUMFields()).fromBits(haltedSummary)
 
   //----ABSTRACTCS
   val ABSTRACTCSReset = (new ABSTRACTCSFields()).fromBits(0.U)
-  ABSTRACTCSReset.datacount := UInt(cfg.nAbstractDataWords)
+  ABSTRACTCSReset.datacount := cfg.nAbstractDataWords.U
 
   val ABSTRACTCSReg = RegInit(ABSTRACTCSReset)
   val ABSTRACTCSWrData = (new ABSTRACTCSFields()).fromBits(dbReq.data)
   val ABSTRACTCSRdData = ABSTRACTCSReg
 
-  when(~DMCONTROL.dmactive){
+  val ABSTRACTCSWrEn = dbWrEn & (dbReq.addr === DMI_ABSTRACTCS)
+
+  when(~dmactive){
     ABSTRACTCSReg := ABSTRACTCSReset
   }.otherwise {
 
@@ -376,14 +396,14 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
       when (ABSTRACTCSWrData.cmderr === 0.U) {
         ABSTRACTCSReg.cmderr := 0.U
       }
-      if (cfg.nAbstractData > 0) ABSTRACTCSReg.autoexec0 := ABSTRACTCSWrData.autoexec0
-      if (cfg.nAbstractData > 1) ABSTRACTCSReg.autoexec1 := ABSTRACTCSWrData.autoexec1
-      if (cfg.nAbstractData > 2) ABSTRACTCSReg.autoexec2 := ABSTRACTCSWrData.autoexec2
-      if (cfg.nAbstractData > 3) ABSTRACTCSReg.autoexec3 := ABSTRACTCSWrData.autoexec3
-      if (cfg.nAbstractData > 4) ABSTRACTCSReg.autoexec4 := ABSTRACTCSWrData.autoexec4
-      if (cfg.nAbstractData > 5) ABSTRACTCSReg.autoexec5 := ABSTRACTCSWrData.autoexec5
-      if (cfg.nAbstractData > 6) ABSTRACTCSReg.autoexec6 := ABSTRACTCSWrData.autoexec6
-      if (cfg.nAbstractData > 7) ABSTRACTCSReg.autoexec7 := ABSTRACTCSWrData.autoexec7
+      if (cfg.nAbstractDataWords > 0) ABSTRACTCSReg.autoexec0 := ABSTRACTCSWrData.autoexec0
+      if (cfg.nAbstractDataWords > 1) ABSTRACTCSReg.autoexec1 := ABSTRACTCSWrData.autoexec1
+      if (cfg.nAbstractDataWords > 2) ABSTRACTCSReg.autoexec2 := ABSTRACTCSWrData.autoexec2
+      if (cfg.nAbstractDataWords > 3) ABSTRACTCSReg.autoexec3 := ABSTRACTCSWrData.autoexec3
+      if (cfg.nAbstractDataWords > 4) ABSTRACTCSReg.autoexec4 := ABSTRACTCSWrData.autoexec4
+      if (cfg.nAbstractDataWords > 5) ABSTRACTCSReg.autoexec5 := ABSTRACTCSWrData.autoexec5
+      if (cfg.nAbstractDataWords > 6) ABSTRACTCSReg.autoexec6 := ABSTRACTCSWrData.autoexec6
+      if (cfg.nAbstractDataWords > 7) ABSTRACTCSReg.autoexec7 := ABSTRACTCSWrData.autoexec7
     }
   }
 
@@ -396,8 +416,11 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val COMMANDReg = RegInit(COMMANDReset)
 
   val COMMANDWrData = (new COMMANDFields()).fromBits(dbReq.data)
+  val COMMANDWrEn    = dbWrEn & (dbReq.addr === DMI_COMMAND)
 
-  when (~DMCONTROL.dmactive) {
+  val COMMANDRdData = COMMANDReg
+
+  when (~dmactive) {
     COMMANDReg := COMMANDReset
   }.otherwise {
     when (COMMANDWrEn) {
@@ -408,13 +431,13 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // --- System Bus Registers
 
   val hartHaltedWrEn       = Wire(Bool())
-  val hartHaltedId         = Wire(UInt(width = sbIdWidth))
+  val hartHaltedId         = Wire(UInt(sbIdWidth.W))
   val hartGoingWrEn        = Wire(Bool())
-  val hartGoingId          = Wire(UInt(width = sbIdWidth))
+  val hartGoingId          = Wire(UInt(sbIdWidth.W))
   val hartResumingWrEn     = Wire(Bool())
-  val hartResumingId       = Wire(UInt(width = sbIdWidth))
+  val hartResumingId       = Wire(UInt(sbIdWidth.W))
   val hartExceptionWrEn    = Wire(Bool())
-  val hartExceptionId      = Wire(UInt(width = sbIdWidth))
+  val hartExceptionId      = Wire(UInt(sbIdWidth.W))
 
   // --- Abstract Data
 
@@ -423,52 +446,42 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // These are byte addressible, s.t. the Processor can use
   // byte-addressible instructions to store to them.
-  val abstractDataMem       = Reg(init = Vec.fill(cfg.nAbstractDataWords*4){UInt(0, width = 8)})
+  val abstractDataMem       = Reg(init = Vec.fill(cfg.nAbstractDataWords*4){0.asUInt(8.W)})
 
-  val dbAbstractDataIdx        = Wire(UInt(width=abstractDataAddrWidth))
+  val dbAbstractDataIdx        = Wire(UInt(abstractDataAddrWidth.W))
   val dbAbstractDataIdxValid   = Wire(Bool())
   val dbAbstractDataRdData      = Wire (UInt(32.W))
   val dbAbstractDataWrData      = Wire(UInt(32.W))
-  val dbAbstractDataWrEn        = Wire(Bool())
-  val dbAbstractDataRdEn        = Wire(Bool())
-  val dbAbstractDataWrEnFinal   = Wire(Bool())
-  val dbAbstractDataRdEnFinal   = Wire(Bool())
 
-  val dbAbstractDataOffset = log2Up(dbAbstractDataWidth/8)
+  val dbAbstractDataOffset = log2Up(abstractDataWidth/8)
 
   // --- Program Buffer
 
-  val PROGBUFRdData = (new DMI_PROGBUFCSFields).fromBits(0.U)
-  PROGBUFRdData.progsize := UInt(cfg.nProgramBufferWords)
+  val PROGBUFCSRdData = (new PROGBUFCSFields).fromBits(0.U)
+  PROGBUFCSRdData.progsize := cfg.nProgramBufferWords.U
 
   val programBufferDataWidth  = 32
   val programBufferAddrWidth = log2Up(cfg.nProgramBufferWords)
 
-  val programBufferMem    = Reg(init = Vec.fill(cfg.nProgramBufferWords*4){UInt(0, width = 8)})
+  val programBufferMem    = RegInit(Vec.fill(cfg.nProgramBufferWords*4){0.asUInt(8.W)})
 
-  val dbProgramBufferIdx   = Wire(UInt(width=programBufferAddrWidth))
+  val dbProgramBufferIdx   = Wire(UInt(programBufferAddrWidth.W))
   val dbProgramBufferIdxValid   = Wire(Bool())
   val dbProgramBufferRdData = Wire (UInt(32.W))
   val dbProgramBufferWrData = Wire(UInt(32.W))
-  val dbProgramBufferWrEn   = Wire(Bool())
-  val dbProgramBufferRdEn   = Wire(Bool())
   val dbProgramBufferWrEnFinal   = Wire(Bool())
   val dbProgramBufferRdEnFinal   = Wire(Bool())
 
-  val dbProgramBufferOffset = log2Up(dbProgramBufferWidth/8)
+  val dbProgramBufferOffset = log2Up(programBufferDataWidth/8)
 
 // --- Debug Bus Accesses
-
-  val dbRdEn   = Wire(Bool())
-  val dbWrEn   = Wire(Bool())
-  val dbRdData = Wire(UInt(width = DbBusConsts.dbDataSize))
+  val dbRdData = Wire(UInt(DbBusConsts.dbDataSize.W))
 
   val s_DB_READY :: s_DB_RESP :: Nil = Enum(Bits(), 2)
   val dbStateReg = Reg(init = s_DB_READY)
 
   val dbResult  = Wire(io.db.resp.bits)
 
-  val dbReq     = Wire(io.db.req.bits)
   val dbRespReg = Reg(io.db.resp.bits) 
 
   //--------------------------------------------------------------
@@ -483,11 +496,11 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // and cleared by writes to DMCONTROL.resumereq.
   
   for (component <- 0 until cfg.nComponents) {
-    when (~DMCONTROL.dmactive) {
+    when (~dmactive) {
       debugIntRegs(component) := false.B
     }. otherwise {
       when (DMCONTROLWrEn) {
-        when (DMCONTROLWrData.hartid === UInt(component)) {
+        when (DMCONTROLWrData.hartsel === component.U) {
           debugIntRegs(component) := (debugIntRegs(component) | DMCONTROLWrData.haltreq) &
           ~(DMCONTROLWrData.resumereq)
         }
@@ -501,23 +514,19 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //--------------------------------------------------------------
 
   for (component <- 0 until cfg.nComponents) {
-    when (~DMCONTROL.dmactive) {
-      haltedRegs(component) := false.B
+    when (~dmactive) {
+      haltedBitRegs(component) := false.B
     }.otherwise {
       when (hartHaltedWrEn) {
-        when (hartHaltedWrId === UInt(component, width = sbIdWidth)) {
-          haltedRegs(component) := true.B
+        when (hartHaltedId === component.U) {
+          haltedBitRegs(component) := true.B
         }
       }.elsewhen (hartResumingWrEn) {
-        when (hartResumingWrId == UInt(component, width=sbIdWidth)) {
-          haltedRegs(component) := false.B
+        when (hartResumingId === component.U) {
+          haltedBitRegs(component) := false.B
         }
       }
     }
-  }
-
-  for (ii <- 0 until numHaltedStatus) {
-    haltedStatus(ii) := Cat(haltedRegs.slice(ii * 32, (ii + 1) * 32).reverse)
   }
 
  
@@ -527,9 +536,8 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   //TODO: Make this more efficient with the final addresses to use masking
   // instead of actual comparisons.
-  dbReq := io.db.req.bits
-  dbAbstractDataIdx       := dbReq.addr - UInt(DMI_DATA0)
-  dbAbstractDataIdxValid := (dbReq.addr >== UInt(DMI_DATA0)) && (dbReq.addr <== (UInt(DMI_DATA0) + UInt(cfg.nAbstractDataWords)))
+  dbAbstractDataIdx       := dbReq.addr - DMI_DATA0
+  dbAbstractDataIdxValid := (dbReq.addr >= DMI_DATA0) && (dbReq.addr <= (DMI_DATA0 + cfg.nAbstractDataWords.U))
 
   val dbAbstractDataFields = List.tabulate(cfg.nAbstractDataWords) { ii =>
     val slice = abstractDataMem.slice(ii * 4, (ii+1)*4)
@@ -538,7 +546,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   when (dbWrEn & dbAbstractDataIdxValid) {
     for (ii <- 0 until 4) {
-      abstractDataMem((dbAbstractDataIdx << 2) + UInt(ii)) := dbReq.data((8*(ii+1)-1), (8*ii))
+      abstractDataMem((dbAbstractDataIdx << 2) + ii.U) := dbReq.data((8*(ii+1)-1), (8*ii))
     }
   }
 
@@ -551,8 +559,8 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //TODO: Make this more efficient with the final addresses to use masking
   // instead of actual comparisons.
 
-  dbProgramBufferIdx       := dbReq.addr - UInt(DMI_PROGBUF0)
-  dbProgramBufferIdxValid := (dbReq.addr >= UInt(DMI_PROGBUF0)) && dbReq.addr <= (UInt(DMI_PROGBUF0) + UInt(cfg.nProgramBufferWords))
+  dbProgramBufferIdx       := dbReq.addr - DMI_PROGBUF0
+  dbProgramBufferIdxValid := (dbReq.addr >= DMI_PROGBUF0) && dbReq.addr <= (DMI_PROGBUF0 + cfg.nProgramBufferWords.U)
 
   val dbProgramBufferFields = List.tabulate(cfg.nProgramBufferWords) { ii =>
     val slice = programBufferMem.slice(ii * 4, (ii+1)*4)
@@ -561,9 +569,9 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   dbProgramBufferRdData := dbProgramBufferFields(dbProgramBufferIdx)
 
-  when (dbWrEn & dbProgramBufferDataIdxValid) {
+  when (dbWrEn & dbProgramBufferIdxValid) {
     for (ii <- 0 until 4) {
-      programBufferMem((dbProgramBufferIdx << 2) + UInt(ii)) := dbReq.data((8*(ii+1)-1), (8*ii))
+      programBufferMem((dbProgramBufferIdx << 2) + ii.U) := dbReq.data((8*(ii+1)-1), (8*ii))
     }
   }
 
@@ -575,39 +583,18 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // -----------------------------------------
   // DB Access Write Decoder
-  
-  DMCONTROLWrEn  := dbWrEn & (dbWrAddr == DMI_DMCONTROL)
-  HARTINFOWrEn   := dbWrEn & (dbWrAddr == DMI_HARTINFO)
-  ABSTRACTCSWrEn := dbWrEn & (dbWrAddr == DMI_ABSTRACTCS)
-  COMMANDWrEn    := dbWrEn & (dbWrAddr == DMI_COMMAND)
   //TODO: use the fact that the addresses are aligned.
-  abstractDataWrEn = Wire(Vec(cfg.nAbstractDataWords, Bool()))
-  abstractDataWrEn.zipwithindex.foreach {
-    case (wen, ii) => wen := dbWrEn & (dbWrAddr == (DMI_DATA0 + ii))
-  }
-  PROGBUFCSWrEn := dbWrEn & (dbWrAddr == DMI_PROGBUFCS)
-  //TODO: use the fact that the addresses are aligned.
-
-  programBufferWrEn = Wire(Vec(cfg.nProgramBufferWords, Bool()))
-  programBufferWrEn.zipWithIndex.foreach {
-    case (wen, ii) => wen := dbWrEn & (dbWrAddr == (DMI_PROGBUF0 + ii))
-  }
-
-    elsewhen (dbReq.addr === DMCONTROL) {
-    DMCONTROLWrEn  := dbWrEn
-  }.otherwise {
-    //Other registers/RAM are Not Implemented.
-  }
 
   // -----------------------------------------
   // DB Access Read Mux
-  when     (dbRdAddr == UInt(DMI_DMCONTROL))  {dbRdData := DMCONTROLRdData}
-    .elsewhen (dbRdAddr == UInt(DMI_HARTINFO))   {dbRdData := HARTINFORdData}
-    .elsewhen (dbRdAddr == UInt(DMI_HALTSUM))    {dbRdData := HALTSUMRdData}
-    .elsewhen (dbRdAddr == UInt(DMI_ABSTRACTCS)) {dbRdData := ABSTRACTCSRdData}
-    .elsewhen (dbRdAddr == UInt(DMI_COMMAND))    {dbRdData := COMMANDRdData}
-    .elsewhen (dbAbstractDataIdxValid)           {dbRdData := dbAbstractDataRdData}
-    .elsewhen (dbProgBufferDataIdxValid)         {dbRdData := dbProgramBufferRdData}
+     when     (dbReq.addr === DMI_DMCONTROL)  {dbRdData := DMCONTROLRdData.asUInt()}
+    .elsewhen (dbReq.addr === DMI_HARTINFO)   {dbRdData := HARTINFORdData.asUInt()}
+    .elsewhen (dbReq.addr === DMI_HALTSUM)    {dbRdData := HALTSUMRdData.asUInt()}
+    .elsewhen (dbReq.addr === DMI_ABSTRACTCS) {dbRdData := ABSTRACTCSRdData.asUInt()}
+    .elsewhen (dbReq.addr === DMI_COMMAND)    {dbRdData := COMMANDRdData.asUInt()}
+    .elsewhen (dbAbstractDataIdxValid)        {dbRdData := dbAbstractDataRdData}
+    .elsewhen (dbProgramBufferIdxValid)       {dbRdData := dbProgramBufferRdData}
+    .elsewhen (dbHaltedStatusIdxValid)        {dbRdData := haltedStatusRdData}
     .otherwise {dbRdData := 0.U}
 
   // There is no way to return failure without SB or Serial, which are not
@@ -623,8 +610,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   io.db.resp.valid := (dbStateReg === s_DB_RESP)
   io.db.resp.bits  := dbRespReg
 
-  dbRdEn := io.db.req.fire()
-  dbWrEn := (io.db.req.op == db_OP_WRITE) && io.db.req.fire()
+  dbWrEn := (dbReq.op === db_OP_WRITE) && io.db.req.fire()
 
   // -----------------------------------------
   // DB Access State Machine Update (Seq)
@@ -649,16 +635,16 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // See the debug directory for contents and scripts to generate this.
 
-  val debugRomContents : Array[Byte] = Array (
+  val debugRomContents : Array[Byte] = Array(
     0x6f, 0x00, 0xc0, 0x00, 0x6f, 0x00, 0x80, 0x02, 0x6f, 0x00, 0x80, 0x03,
     0x0f, 0x00, 0xf0, 0x0f, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
     0x23, 0x20, 0x80, 0x10, 0x03, 0x04, 0x04, 0x40, 0x63, 0x1a, 0x80, 0x00,
     0x73, 0x24, 0x40, 0xf1, 0x6f, 0xf0, 0x5f, 0xff, 0x23, 0x26, 0x00, 0x10,
     0x73, 0x00, 0x10, 0x00, 0x73, 0x24, 0x20, 0x7b, 0x23, 0x22, 0x00, 0x10,
     0x67, 0x00, 0x00, 0x90, 0x23, 0x24, 0x00, 0x10, 0x73, 0x00, 0x20, 0x7b
-  )
+  ).map(_.toByte)
 
-  val romRegFields  =  debugRomContents.get.map( x => RegField.r(8, UInt(x.toInt & 0xFF)))
+  val romRegFields  =  debugRomContents.map( x => RegField.r(8, (x.toInt & 0xFF).U))
 
   //--------------------------------------------------------------
   // "Variable" ROM
@@ -675,32 +661,32 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //TODO: goBits logic.
 
   // TODO: abstractGeneratedInstrucitonLogic.
-  val abstractGeneratedInstruction = Reg(32.W)
+  val abstractGeneratedInstruction = Reg(UInt(32.W))
   val ebreakInstruction = 0x00100073.U
 
   //--------------------------------------------------------------
   // System Bus Access
   //--------------------------------------------------------------
 
-  // Local reg mapper function : Notify when written, but give the value.
+  // Local reg mapper function : Notify when written, but give the value as well.
   def wValue (n: Int, value: UInt, set: Bool) : RegField = {
     RegField(n, value, RegWriteFn((valid, data) => {set := valid ; value := data; Bool(true)}))
   }
 
   regmap(
-    HALTED      -> Seq(wValue(sbIdWidth, HALTEDWrData, HALTEDWrEn)),
-    GOING       -> Seq(wValue(sbIdWidth, GOINGWrData,  GOINGWrEn)),
-    RESUMING    -> Seq(wValue(sbIdWidth, RESUMINGWrData,  RESUMINGWrEn)),
-    EXCEPTION   -> Seq(wValue(sbIdWidth, EXCEPTIONWrData,  EXCEPTIONWrEn)),
-
+    // This memory is writable.
+    HALTED      -> Seq(wValue(sbIdWidth, hartHaltedId, hartHaltedWrEn)),
+    GOING       -> Seq(wValue(sbIdWidth, hartGoingId,  hartGoingWrEn)),
+    RESUMING    -> Seq(wValue(sbIdWidth, hartResumingId,  hartResumingWrEn)),
+    EXCEPTION   -> Seq(wValue(sbIdWidth, hartExceptionId,  hartExceptionWrEn)),
     DATA        -> abstractDataMem.map(x => RegField(8, x)),
+    PROGBUF     -> programBufferMem.map(x => RegField(8, x)),
+
+    // These sections are read-only.
     ROMBASE     -> romRegFields,
-
-    GO          -> goBits.map(x => RegField.r(8, x))    
+    GO          -> goBits.map(x => RegField.r(8, x)),   
     WHERETO     -> Seq(RegField.r(32, whereToReg)),
-    ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedInstruction), RegField.r(32, ebreakInstruction)),
-    PROGBUF     -> programBufferMem.map(x => RegFields(8, x))
-
+    ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedInstruction), RegField.r(32, ebreakInstruction))
   )
 
   //--------------------------------------------------------------
