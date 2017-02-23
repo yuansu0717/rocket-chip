@@ -209,31 +209,6 @@ class DMIIO(implicit val p: Parameters) extends ParameterizedBundle()(p) {
   val resp = new DecoupledIO(new DMIResp).flip()
 }
 
-class AsyncDMIIO(implicit val p: Parameters) extends ParameterizedBundle()(p) {
-  val req  = new AsyncBundle(1, new DMIReq(p(DMKey).nDMIAddrSize))
-  val resp = new AsyncBundle(1, new DMIResp).flip
-}
-
-object FromAsyncDMI
-{
-  def apply(x: AsyncDMIIO) = {
-    val out = Wire(new DMIIO()(x.p))
-    out.req <> FromAsyncBundle(x.req)
-    x.resp <> ToAsyncBundle(out.resp, 1)
-    out
-  }
-}
-
-object ToAsyncDMI
-{
-  def apply(x: DMIIO) = {
-    val out = Wire(new AsyncDMIIO()(x.p))
-    out.req <> ToAsyncBundle(x.req, 1)
-    x.resp <> FromAsyncBundle(out.resp)
-    out
-  }
-}
-
 trait HasDebugModuleParameters {
   implicit val p: Parameters
   val cfg = p(DMKey)
@@ -248,6 +223,7 @@ trait DebugModuleBundle extends Bundle with HasDebugModuleParameters {
   val debugInterrupts = Vec(cfg.nComponents, Bool()).asOutput
   val debugUnavail    = Vec(cfg.nComponents, Bool()).asInput
   val ndreset         = Bool(OUTPUT)
+  val debugActive     = Bool(OUTPUT)
 }
 
 // *****************************************
@@ -302,8 +278,18 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val haltedBitRegs  = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
 
   val dmiReq = io.dmi.req.bits
-
   val dmiWrEn   = Wire(Bool())
+
+  // --- regmapper outputs
+
+  val hartHaltedWrEn       = Wire(Bool())
+  val hartHaltedId         = Wire(UInt(sbIdWidth.W))
+  val hartGoingWrEn        = Wire(Bool())
+  val hartGoingId          = Wire(UInt(sbIdWidth.W))
+  val hartResumingWrEn     = Wire(Bool())
+  val hartResumingId       = Wire(UInt(sbIdWidth.W))
+  val hartExceptionWrEn    = Wire(Bool())
+  val hartExceptionId      = Wire(UInt(sbIdWidth.W))
 
   //--------------------------------------------------------------
   // DMI Registers 
@@ -329,8 +315,6 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   } .otherwise {
     DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Running.id.U
   }
-
-  val ndresetCtrReg = RegInit(0.asUInt(cfg.nNDResetCycles.W))
 
   val DMCONTROLWrData = (new DMCONTROLFields()).fromBits(dmiReq.data)
   val DMCONTROLWrEn   = dmiWrEn & (dmiReq.addr === DMI_DMCONTROL)
@@ -378,6 +362,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val HALTSUMRdData = (new HALTSUMFields()).fromBits(haltedSummary)
 
   //----ABSTRACTCS
+
   val ABSTRACTCSReset = (new ABSTRACTCSFields()).fromBits(0.U)
   ABSTRACTCSReset.datacount := cfg.nAbstractDataWords.U
 
@@ -428,16 +413,6 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
       COMMANDReg := COMMANDWrData
     }
   }
-  // --- System Bus Registers
-
-  val hartHaltedWrEn       = Wire(Bool())
-  val hartHaltedId         = Wire(UInt(sbIdWidth.W))
-  val hartGoingWrEn        = Wire(Bool())
-  val hartGoingId          = Wire(UInt(sbIdWidth.W))
-  val hartResumingWrEn     = Wire(Bool())
-  val hartResumingId       = Wire(UInt(sbIdWidth.W))
-  val hartExceptionWrEn    = Wire(Bool())
-  val hartExceptionId      = Wire(UInt(sbIdWidth.W))
 
   // --- Abstract Data
 
@@ -474,15 +449,14 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   val dmiProgramBufferOffset = log2Up(programBufferDataWidth/8)
 
-// --- Debug Bus Accesses
-  val dmiRdData = Wire(UInt(DMIConsts.dmiDataSize.W))
+  //--------------------------------------------------------------
+  // DMI Registers 
+  //--------------------------------------------------------------
+
+  // --- Debug Bus Accesses
 
   val s_DMI_READY :: s_DMI_RESP :: Nil = Enum(Bits(), 2)
   val dmiStateReg = Reg(init = s_DMI_READY)
-
-  val dmiResult  = Wire(io.dmi.resp.bits)
-
-  val dmiRespReg = Reg(io.dmi.resp.bits) 
 
   //--------------------------------------------------------------
   // Interrupt Registers
@@ -582,15 +556,14 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //--------------------------------------------------------------
 
   // -----------------------------------------
-  // DMI Access Write Decoder
-  //TODO: use the fact that the addresses are aligned.
-
-  // -----------------------------------------
   // DMI Access Read Mux
-     when     (dmiReq.addr === DMI_DMCONTROL)  {dmiRdData := DMCONTROLRdData.asUInt()}
+  val dmiRdData = Wire(UInt(DMIConsts.dmiDataSize.W))
+
+  when     (dmiReq.addr === DMI_DMCONTROL)  {dmiRdData := DMCONTROLRdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_HARTINFO)   {dmiRdData := HARTINFORdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_HALTSUM)    {dmiRdData := HALTSUMRdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_ABSTRACTCS) {dmiRdData := ABSTRACTCSRdData.asUInt()}
+    .elsewhen (dmiReq.addr === DMI_PROGBUFCS)  {dmiRdData := PROGBUFCSRdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_COMMAND)    {dmiRdData := COMMANDRdData.asUInt()}
     .elsewhen (dmiAbstractDataIdxValid)        {dmiRdData := dmiAbstractDataRdData}
     .elsewhen (dmiProgramBufferIdxValid)       {dmiRdData := dmiProgramBufferRdData}
@@ -599,11 +572,17 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // There is no way to return failure without SB or Serial, which are not
   // implemented yet.
+
+  val dmiResult  = Wire(new DMIResp())
+
   dmiResult.resp := dmi_RESP_SUCCESS
   dmiResult.data := dmiRdData
 
   // -----------------------------------------
   // DMI Access State Machine Decode (Combo)
+
+  val dmiRespReg = Reg(new DMIResp())
+
   io.dmi.req.ready := (dmiStateReg === s_DMI_READY) ||
   (dmiStateReg === s_DMI_RESP && io.dmi.resp.fire())
 
@@ -690,11 +669,19 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   )
 
   //--------------------------------------------------------------
+  // State Machine
+  //--------------------------------------------------------------
+
+
+
+  //--------------------------------------------------------------
   // Misc. Outputs
   //--------------------------------------------------------------
 
   // TODO
   io.ndreset   := false.B
+
+  io.debugActive := dmactive
 
 }
 
@@ -711,6 +698,31 @@ class TLDebugModule(address: BigInt = 0)(implicit p: Parameters)
   *  
   */
 
+
+class AsyncDMIIO(implicit val p: Parameters) extends ParameterizedBundle()(p) {
+  val req  = new AsyncBundle(1, new DMIReq(p(DMKey).nDMIAddrSize))
+  val resp = new AsyncBundle(1, new DMIResp).flip
+}
+
+object FromAsyncDMI
+{
+  def apply(x: AsyncDMIIO) = {
+    val out = Wire(new DMIIO()(x.p))
+    out.req <> FromAsyncBundle(x.req)
+    x.resp <> ToAsyncBundle(out.resp, 1)
+    out
+  }
+}
+
+object ToAsyncDMI
+{
+  def apply(x: DMIIO) = {
+    val out = Wire(new AsyncDMIIO()(x.p))
+    out.req <> ToAsyncBundle(x.req, 1)
+    x.resp <> FromAsyncBundle(out.resp)
+    out
+  }
+}
 
 object AsyncDMICrossing {
   // takes from_source from the 'from' clock domain to the 'to' clock domain
