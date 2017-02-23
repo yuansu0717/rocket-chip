@@ -127,7 +127,7 @@ case class DebugModuleConfig (
 
   require (nSerialPorts <= 8)
 
-  require ((nDebugBusAddrSize >= 5) && (nDebugBusAddrSize <= 7))
+  require ((nDebugBusAddrSize >= 7) && (nDebugBusAddrSize <= 32))
 
   //TODO: Revisit these.
   private val maxComponents = nDebugBusAddrSize match {
@@ -152,7 +152,7 @@ case class DebugModuleConfig (
 class DefaultDebugModuleConfig (val ncomponents : Int, val xlen:Int)
     extends DebugModuleConfig(
       nComponents = ncomponents,
-      nDebugBusAddrSize = 5,
+      nDebugBusAddrSize = 7,
       //TODO: what should these values be.
       nProgramBufferWords   =  8,
       nAbstractDataWords = xlen match{
