@@ -549,8 +549,6 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
   }
 
-
-
   //--------------------------------------------------------------
   // DMI Access
   //--------------------------------------------------------------
@@ -573,13 +571,14 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // There is no way to return failure without SB or Serial, which are not
   // implemented yet.
 
+
+  // -----------------------------------------
+  // DMI Access State Machine Decode (Combo)
+
   val dmiResult  = Wire(new DMIResp())
 
   dmiResult.resp := dmi_RESP_SUCCESS
   dmiResult.data := dmiRdData
-
-  // -----------------------------------------
-  // DMI Access State Machine Decode (Combo)
 
   val dmiRespReg = Reg(new DMIResp())
 
@@ -672,7 +671,43 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // State Machine
   //--------------------------------------------------------------
 
+  object CtrlState extends scala.Enumeration {
+    type CtrlState = Value
+    val Idle, Halting, Waiting, PreExec, Abstract, PostExec, Resuming = Value
 
+    def apply( t : Value) : UInt = {
+      t.id.asUInt(log2Up(values.size).W)
+    }
+  }
+  import CtrlState._
+  
+  val ctrlStateReg = RegInit(CtrlState(Idle))
+
+  // Combo
+  val ctrlStateNxt = ctrlStateReg
+
+  when (ctrlStateReg === CtrlState(Idle)) {
+    ctrlStateReg := CtrlState(Halting)
+  }.elsewhen (ctrlStateReg === CtrlState(Halting)) {
+    ctrlStateReg := CtrlState(Waiting)
+  }.elsewhen (ctrlStateReg === CtrlState(Waiting)) {
+    ctrlStateReg := CtrlState(PreExec)
+  }.elsewhen (ctrlStateReg === CtrlState(PreExec)) {
+    ctrlStateReg := CtrlState(Abstract)
+  }.elsewhen (ctrlStateReg === CtrlState(Abstract)) {
+    ctrlStateReg := CtrlState(PostExec)
+  }.elsewhen (ctrlStateReg === CtrlState(PostExec)) {
+    ctrlStateReg := CtrlState(Resuming)
+  }.elsewhen (ctrlStateReg === CtrlState(Resuming)) {
+    ctrlStateReg := CtrlState(Idle)
+  }
+
+  // Sequential 
+  when (!dmactive) {
+    ctrlStateReg := CtrlState(Idle)
+  }.otherwise {
+    ctrlStateReg := ctrlStateNxt
+  }
 
   //--------------------------------------------------------------
   // Misc. Outputs
