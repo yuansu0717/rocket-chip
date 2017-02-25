@@ -264,7 +264,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // Sanity Check Configuration For this implementation.
   //--------------------------------------------------------------
 
-  //TODO: is this requiredment still true.
+  //TODO: is this requirement still true.
   require (cfg.nComponents <= 128)
   require (cfg.nSerialPorts == 0)
   require (cfg.hasBusMaster == false)
@@ -654,17 +654,71 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val goReg            = Reg (init = false.B)
   when (goProgramBuffer | goResume | goAbstract) {
     goReg := true.B
-  }.elsewhen (hartGoingWrEn && (hartGoingId === DMCONTROLReg.hartsel)) {
-    // TODO: Assertion of the above equality check.
+  }.elsewhen (hartGoingWrEn){
+    assert(hartGoingId === DMCONTROLReg.hartsel,
+      "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
     goReg := false.B
   }
 
   val goBytes = Wire(init = Vec.fill(cfg.nComponents){0.U(8.W)})
   goBytes(DMCONTROLReg.hartsel) := Cat(0.U(7.W), goReg)
 
-  // TODO: abstractGeneratedInstrucitonLogic.
-  val abstractGeneratedInstruction = Reg(UInt(32.W))
-  val ebreakInstruction = 0x00100073.U
+  //----------------------------
+  // Command Decoding
+  //----------------------------
+
+  val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
+  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
+
+  // TODO: Quick Access
+  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.toBits()))
+
+
+  class GeneratedI extends Bundle {
+    val opcode = UInt(7.W)
+    val rd     = UInt(5.W)
+    val funct3 = UInt(3.W)
+    val rs1    = UInt(5.W)
+    val imm    = UInt(12.W)
+  }
+
+  class GeneratedS extends Bundle {
+    val opcode = UInt(7.W)
+    val immlo  = UInt(5.W)
+    val funct3 = UInt(3.W)
+    val rs1    = UInt(5.W)
+    val rs2    = UInt(5.W)
+    val immhi  = UInt(7.W)
+  }
+
+  val abstractGeneratedReg = Reg(UInt(32.W))
+  val abstractGeneratedI = Wire(new GeneratedI())
+  val abstractGeneratedS = Wire(new GeneratedS())
+
+  abstractGeneratedI.opcode := ((new GeneratedI()).fromBits(rocket.Instructions.LW.value.U)).opcode
+  abstractGeneratedI.rd     := (accessRegisterCommandReg.regno & 0x1F.U) // TODO: refuse to do this for CSRs/FPRs
+  abstractGeneratedI.funct3 := accessRegisterCommandReg.size
+  abstractGeneratedI.rs1    := 0.U //addr
+  abstractGeneratedI.imm    := DATA.U
+
+  abstractGeneratedS.opcode := ((new GeneratedI()).fromBits(rocket.Instructions.SW.value.U)).opcode
+  abstractGeneratedS.immlo  := (DATA & 0x1F).U
+  abstractGeneratedS.funct3 := accessRegisterCommandReg.size
+  abstractGeneratedS.rs1    := 0.U // addr
+  abstractGeneratedS.rs2    := (accessRegisterCommandReg.regno & 0x1F.U) // TODO: refuse to do this for CSRs/FPRs
+  abstractGeneratedS.immhi  := (DATA >> 5).U
+
+  when (goAbstract) {
+    when (accessRegisterCommandReg.write) {
+      // To write a register, we need to do LW.
+      abstractGeneratedReg := abstractGeneratedI.asUInt()
+    }.otherwise {
+      // To read a register, we need to do SW.
+      abstractGeneratedReg := abstractGeneratedS.asUInt()
+    }
+  }
+
+  val ebreakInstruction = Wire(rocket.Instructions.EBREAK.value.U)
 
   //--------------------------------------------------------------
   // System Bus Access
@@ -688,7 +742,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     ROMBASE     -> romRegFields,
     GO          -> goBytes.map(x => RegField.r(8, x)),   
     WHERETO     -> Seq(RegField.r(32, whereToReg)),
-    ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedInstruction), RegField.r(32, ebreakInstruction))
+    ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedReg), RegField.r(32, ebreakInstruction))
   )
 
   //--------------------------------------------------------------
@@ -724,12 +778,6 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val autoexec = autoexecVec.reduce(_ || _)
 
   //------------------------
-
-  val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
-  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
-
-  // TODO: Quick Access
-  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.toBits()))
 
 
   ABSTRACTCSRdData.busy := (ctrlStateReg === CtrlState(PreExec)) ||
@@ -820,10 +868,9 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
   }.elsewhen (ctrlStateReg === CtrlState(Resuming)) {
 
-    // TODO: Assert that only the hartsel hart is resuming. We
-    // should not need to actually check for the hart that is writing
-    // here.
-    when(hartResumingWrEn && (hartResumingId === DMCONTROLReg.hartsel)){
+    when(hartResumingWrEn) {
+      assert (hartResumingId === DMCONTROLReg.hartsel,
+        "Unexpected 'RESUMING' hart, %x, expected %x", hartResumingId, DMCONTROLReg.hartsel)
       ctrlStateReg := CtrlState(Idle)
     }
   }
