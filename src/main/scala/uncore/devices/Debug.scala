@@ -392,7 +392,9 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
   }
 
-  // TODO: ABSTRACTCSReg.busy
+  // For busy, see below state machine.
+  // ABSTRACTCSReg.busy := 
+
   // TODO: ABSTRACTCSReg.cmderr
 
   //---- COMMAND
@@ -414,6 +416,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
   }
 
+
   // --- Abstract Data
 
   val abstractDataWidth     = 32
@@ -421,7 +424,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // These are byte addressible, s.t. the Processor can use
   // byte-addressible instructions to store to them.
-  val abstractDataMem       = Reg(init = Vec.fill(cfg.nAbstractDataWords*4){0.asUInt(8.W)})
+  val abstractDataMem       = RegInit(Vec.fill(cfg.nAbstractDataWords*4){0.U(8.W)})
 
   val dmiAbstractDataIdx        = Wire(UInt(abstractDataAddrWidth.W))
   val dmiAbstractDataIdxValid   = Wire(Bool())
@@ -438,7 +441,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val programBufferDataWidth  = 32
   val programBufferAddrWidth = log2Up(cfg.nProgramBufferWords)
 
-  val programBufferMem    = RegInit(Vec.fill(cfg.nProgramBufferWords*4){0.asUInt(8.W)})
+  val programBufferMem    = RegInit(Vec.fill(cfg.nProgramBufferWords*4){0.U(8.W)})
 
   val dmiProgramBufferIdx   = Wire(UInt(programBufferAddrWidth.W))
   val dmiProgramBufferIdxValid   = Wire(Bool())
@@ -456,7 +459,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // --- Debug Bus Accesses
 
   val s_DMI_READY :: s_DMI_RESP :: Nil = Enum(Bits(), 2)
-  val dmiStateReg = Reg(init = s_DMI_READY)
+  val dmiStateReg = RegInit(s_DMI_READY)
 
   //--------------------------------------------------------------
   // Interrupt Registers
@@ -511,7 +514,10 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //TODO: Make this more efficient with the final addresses to use masking
   // instead of actual comparisons.
   dmiAbstractDataIdx       := dmiReq.addr - DMI_DATA0
-  dmiAbstractDataIdxValid := (dmiReq.addr >= DMI_DATA0) && (dmiReq.addr <= (DMI_DATA0 + cfg.nAbstractDataWords.U))
+  dmiAbstractDataIdxValid  := (dmiReq.addr >= DMI_DATA0) && (dmiReq.addr <= (DMI_DATA0 + cfg.nAbstractDataWords.U))
+
+  val dmiAbstractDataWrEn  = dmiAbstractDataIdxValid && dmiWrEn
+
 
   val dmiAbstractDataFields = List.tabulate(cfg.nAbstractDataWords) { ii =>
     val slice = abstractDataMem.slice(ii * 4, (ii+1)*4)
@@ -557,7 +563,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // DMI Access Read Mux
   val dmiRdData = Wire(UInt(DMIConsts.dmiDataSize.W))
 
-  when     (dmiReq.addr === DMI_DMCONTROL)  {dmiRdData := DMCONTROLRdData.asUInt()}
+  when     (dmiReq.addr === DMI_DMCONTROL)     {dmiRdData := DMCONTROLRdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_HARTINFO)   {dmiRdData := HARTINFORdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_HALTSUM)    {dmiRdData := HALTSUMRdData.asUInt()}
     .elsewhen (dmiReq.addr === DMI_ABSTRACTCS) {dmiRdData := ABSTRACTCSRdData.asUInt()}
@@ -631,12 +637,30 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // 00c0006f                j       910 <abstract>
   // 0f80006f                j       a00 <prog_buffer>
 
-  val whereToReg = Reg(UInt(32.W))
-  //TODO: whereToReg logic.
+  val goProgramBuffer = Wire(init = false.B)
+  val goResume        = Wire(init = false.B)
+  val goAbstract      = Wire(init = false.B)
 
-  val goBits = RegInit(Vec(cfg.nComponents, false.B))
+  val whereToReg = RegInit(0.U(32.W))
 
-  //TODO: goBits logic.
+  when (goProgramBuffer) {
+    whereToReg := 0x0f80006fL.U    // j       a00 <prog_buffer>
+  }.elsewhen (goResume) {
+    whereToReg := 0xf09ff06fL.U    // j       808 <resume>
+  }.elsewhen (goAbstract) {
+    whereToReg := 0x00c0006fL.U    // j       910 <abstract>
+  }
+
+  val goReg            = Reg (init = false.B)
+  when (goProgramBuffer | goResume | goAbstract) {
+    goReg := true.B
+  }.elsewhen (hartGoingWrEn && (hartGoingId === DMCONTROLReg.hartsel)) {
+    // TODO: Assertion of the above equality check.
+    goReg := false.B
+  }
+
+  val goBytes = Wire(init = Vec.fill(cfg.nComponents){0.U(8.W)})
+  goBytes(DMCONTROLReg.hartsel) := Cat(0.U(7.W), goReg)
 
   // TODO: abstractGeneratedInstrucitonLogic.
   val abstractGeneratedInstruction = Reg(UInt(32.W))
@@ -662,7 +686,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
     // These sections are read-only.
     ROMBASE     -> romRegFields,
-    GO          -> goBits.map(x => RegField.r(8, x)),   
+    GO          -> goBytes.map(x => RegField.r(8, x)),   
     WHERETO     -> Seq(RegField.r(32, whereToReg)),
     ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedInstruction), RegField.r(32, ebreakInstruction))
   )
@@ -676,38 +700,143 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     val Idle, Halting, Waiting, PreExec, Abstract, PostExec, Resuming = Value
 
     def apply( t : Value) : UInt = {
-      t.id.asUInt(log2Up(values.size).W)
+      t.id.U(log2Up(values.size).W)
     }
   }
   import CtrlState._
-  
+
   val ctrlStateReg = RegInit(CtrlState(Idle))
 
   // Combo
-  val ctrlStateNxt = ctrlStateReg
+  val hartHalted = (DMCONTROLRdData.hartstatus === DebugModuleHartStatus.Halted.id.U)
+  val ctrlStateNxt    = ctrlStateReg
+  val autoexecVec = Wire(init = Vec.fill(8){false.B})
+
+  if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataWrEn
+
+  val autoexec = autoexecVec.reduce(_ || _)
+
+  //------------------------
+
+  val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
+  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
+
+  // TODO: Quick Access
+  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.toBits()))
+
+
+  ABSTRACTCSRdData.busy := (ctrlStateReg === CtrlState(PreExec)) ||
+  (ctrlStateReg === CtrlState(Abstract)) ||
+  (ctrlStateReg === CtrlState(PostExec))
+
+
+
+  //------------------------
+  // TEH STATE MACHINE
+  // -----------------------
+
+
+  //TODO: All error/ exception checking.
 
   when (ctrlStateReg === CtrlState(Idle)) {
-    ctrlStateReg := CtrlState(Halting)
+
+    //TODO: This results in a case not represented
+    // on the state machine, the hart status reports 'halted',
+    // but we aren't really ready to receive a command yet.
+    // In general there is some sketchiness here.
+    // If COMMAND is written on this cycle, we don't see it
+    // but it's not really reasonable to report an error either.
+
+    when (hartHalted) {
+      // This covers the case when the hart halts
+      // on its own, or we happened to switch hartsel
+      // to a hart which was already halted.
+      ctrlStateNxt := CtrlState(Waiting)
+    }.elsewhen (DMCONTROLReg.haltreq) {
+      // This covers the case when the debugger is requesting
+      // halt explicitly. It is OK if the hart halts on
+      // its own right here.
+      ctrlStateNxt := CtrlState(Halting)
+    }
   }.elsewhen (ctrlStateReg === CtrlState(Halting)) {
-    ctrlStateReg := CtrlState(Waiting)
+
+    // Hart may have gotten here on its own via a breakpoint,
+    // so just check for its halt status vs. looking for the
+    // write from the Hart (which may have happened already).
+    when (hartHalted) {
+      ctrlStateNxt := CtrlState(Waiting)
+    }
   }.elsewhen (ctrlStateReg === CtrlState(Waiting)) {
-    ctrlStateReg := CtrlState(PreExec)
+
+    //TODO: Check command type is 'access register'.
+    when ((autoexec & accessRegisterCommandReg.preexec) | (COMMANDWrEn & accessRegisterCommandWr.preexec)) {
+      ctrlStateNxt    := CtrlState(PreExec)
+      goProgramBuffer := true.B
+    }.elsewhen (COMMANDWrEn | autoexec) {
+      //TODO: Check for command legality.
+      ctrlStateNxt := CtrlState(Abstract)
+      goAbstract := true.B
+    }.elsewhen(DMCONTROLWrEn & DMCONTROLWrData.resumereq){
+      ctrlStateNxt := CtrlState(Resuming)
+      goResume := true.B
+    }
   }.elsewhen (ctrlStateReg === CtrlState(PreExec)) {
-    ctrlStateReg := CtrlState(Abstract)
+
+    // We can't just look at 'hartHalted' here, because
+    // hartHaltedWrEn is overloaded to mean 'got an ebreak'
+    // which may have happened when we were already halted.
+    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+      ctrlStateNxt := CtrlState(Abstract)
+      goAbstract := true.B
+    }
   }.elsewhen (ctrlStateReg === CtrlState(Abstract)) {
-    ctrlStateReg := CtrlState(PostExec)
+
+    // We can't just look at 'hartHalted' here, because
+    // hartHaltedWrEn is overloaded to mean 'got an ebreak'
+    // which may have happened when we were already halted.
+    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+      when (accessRegisterCommandReg.postexec) {
+        ctrlStateNxt := CtrlState(PostExec)
+        goProgramBuffer := true.B
+      }.otherwise {
+        ctrlStateNxt := CtrlState(Waiting)
+      }
+    }
+
   }.elsewhen (ctrlStateReg === CtrlState(PostExec)) {
-    ctrlStateReg := CtrlState(Resuming)
+
+    // We can't just look at 'hartHalted' here, because
+    // hartHaltedWrEn is overloaded to mean 'got an ebreak'
+    // which may have happened when we were already halted.
+    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+      ctrlStateNxt := CtrlState(Waiting)
+    }
   }.elsewhen (ctrlStateReg === CtrlState(Resuming)) {
-    ctrlStateReg := CtrlState(Idle)
+
+    // TODO: Assert that only the hartsel hart is resuming. We
+    // should not need to actually check for the hart that is writing
+    // here.
+    when(hartResumingWrEn && (hartResumingId === DMCONTROLReg.hartsel)){
+      ctrlStateReg := CtrlState(Idle)
+    }
   }
 
-  // Sequential 
+  // Sequential
   when (!dmactive) {
     ctrlStateReg := CtrlState(Idle)
   }.otherwise {
     ctrlStateReg := ctrlStateNxt
   }
+
+
+
 
   //--------------------------------------------------------------
   // Misc. Outputs
