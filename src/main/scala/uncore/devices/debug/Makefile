@@ -13,7 +13,7 @@ all: $(patsubst %,%.h,$(ELFS))
 
 %.scala: %.raw
 	xxd -i $^ | sed -e "s/^unsigned char debug_rom_raw\[\] = {/def debugRomContents : Array[Byte] = Array (/" \
-	-e  "s/};/)/" \
+	-e  "s/};/).map(_.toByte)/" \
 	-e  "s/^unsigned int debug_rom_raw_len/def debugRomLen/"  > $@
 
 %.raw:	%

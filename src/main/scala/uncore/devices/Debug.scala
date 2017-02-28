@@ -46,9 +46,9 @@ object DsbRegAddrs{
 
   // These are used by the ROM.
   def HALTED       = 0x100
-  def GOING        = 0x10C
-  def RESUMING     = 0x110
-  def EXCEPTION    = 0x114
+  def GOING        = 0x104
+  def RESUMING     = 0x108
+  def EXCEPTION    = 0x10C
 
   def GO           = 0x400
 
@@ -291,7 +291,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val debugIntRegs = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
   val haltedBitRegs  = Reg(init=Vec.fill(cfg.nComponents){Bool(false)})
 
-  val dmiReq = io.dmi.req.bits
+  val dmiReq    = io.dmi.req.bits
   val dmiWrEn   = Wire(Bool())
 
   // --- regmapper outputs
@@ -311,7 +311,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   //----DMCONTROL
 
-  val DMCONTROLReset = (new DMCONTROLFields()).fromBits(0.U)
+  val DMCONTROLReset = Wire(init = (new DMCONTROLFields()).fromBits(0.U))
   DMCONTROLReset.authenticated := true.B // Not implemented
   DMCONTROLReset.version       := 1.U
   val DMCONTROLReg = RegInit(DMCONTROLReset)
@@ -319,7 +319,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val unavailVec = Wire(Vec(cfg.nComponents, Bool()))
   unavailVec := io.debugUnavail
 
-  val DMCONTROLRdData = DMCONTROLReg
+  val DMCONTROLRdData = Wire(init = DMCONTROLReg)
   when (DMCONTROLReg.hartsel >= cfg.nComponents.U) {
     DMCONTROLRdData.hartstatus := DebugModuleHartStatus.NonExistent.id.U
   } .elsewhen (haltedBitRegs(DMCONTROLReg.hartsel)) {
@@ -350,7 +350,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   //----HARTINFO
 
-  val HARTINFORdData = (new HARTINFOFields()).fromBits(0.U)
+  val HARTINFORdData = Wire (init = (new HARTINFOFields()).fromBits(0.U))
   HARTINFORdData.dataaccess  := true.B
   HARTINFORdData.datasize    := cfg.nAbstractDataWords.U
   HARTINFORdData.dataaddr    := DsbRegAddrs.DATA.U
@@ -377,12 +377,12 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   //----ABSTRACTCS
 
-  val ABSTRACTCSReset = (new ABSTRACTCSFields()).fromBits(0.U)
+  val ABSTRACTCSReset = Wire(init = (new ABSTRACTCSFields()).fromBits(0.U))
   ABSTRACTCSReset.datacount := cfg.nAbstractDataWords.U
 
   val ABSTRACTCSReg = RegInit(ABSTRACTCSReset)
   val ABSTRACTCSWrData = (new ABSTRACTCSFields()).fromBits(dmiReq.data)
-  val ABSTRACTCSRdData = ABSTRACTCSReg
+  val ABSTRACTCSRdData = Wire(init = ABSTRACTCSReg)
 
   val ABSTRACTCSWrEnMaybe = dmiWrEn & (dmiReq.addr === DMI_ABSTRACTCS)
 
@@ -393,6 +393,8 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val errorException   = Wire(init = false.B)
   val errorUnsupported = Wire(init = false.B)
   val errorHaltResume  = Wire(init = false.B)
+
+  val abstractCSClearError = ABSTRACTCSWrEn && (ABSTRACTCSWrData.cmderr === 0.U)
 
   when(~dmactive){
     ABSTRACTCSReg := ABSTRACTCSReset
@@ -407,7 +409,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }.elsewhen (errorHaltResume) {
       ABSTRACTCSReg.cmderr := DebugAbstractCommandError.ErrHaltResume.id.U
     }.otherwise {
-      when (ABSTRACTCSWrEn && ABSTRACTCSWrData.cmderr === 0.U) {
+      when (abstractCSClearError){
         ABSTRACTCSReg.cmderr := DebugAbstractCommandError.None.id.U
       }
     }
@@ -425,16 +427,17 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   }
 
   // For busy, see below state machine.
-  // ABSTRACTCSReg.busy := 
+  val abstractCommandBusy = Wire(init = true.B)
+  ABSTRACTCSRdData.busy := abstractCommandBusy
 
   //---- COMMAND
 
   val COMMANDReset = (new COMMANDFields()).fromBits(0.U)
   val COMMANDReg = RegInit(COMMANDReset)
 
-  val COMMANDWrData = (new COMMANDFields()).fromBits(dmiReq.data)
+  val COMMANDWrData       = (new COMMANDFields()).fromBits(dmiReq.data)
   val COMMANDWrEnMaybe    = dmiWrEn & (dmiReq.addr === DMI_COMMAND)
-  val COMMANDWrEnLegal = Wire(init = false.B)
+  val COMMANDWrEnLegal    = Wire(init = false.B)
 
   val COMMANDWrEn = COMMANDWrEnMaybe && COMMANDWrEnLegal
   val COMMANDRdData = COMMANDReg
@@ -466,7 +469,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // --- Program Buffer
 
-  val PROGBUFCSRdData = (new PROGBUFCSFields).fromBits(0.U)
+  val PROGBUFCSRdData = Wire(init = (new PROGBUFCSFields).fromBits(0.U))
   PROGBUFCSRdData.progsize := cfg.nProgramBufferWords.U
 
   val programBufferDataWidth  = 32
@@ -478,8 +481,6 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val dmiProgramBufferIdxValid   = Wire(Bool())
   val dmiProgramBufferRdData = Wire (UInt(32.W))
   val dmiProgramBufferWrData = Wire(UInt(32.W))
-  val dmiProgramBufferWrEnFinal   = Wire(Bool())
-  val dmiProgramBufferRdEnFinal   = Wire(Bool())
 
   val dmiProgramBufferOffset = log2Up(programBufferDataWidth/8)
 
@@ -563,7 +564,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // instead of actual comparisons.
 
   dmiProgramBufferIdx       := dmiReq.addr - DMI_PROGBUF0
-  dmiProgramBufferIdxValid := (dmiReq.addr >= DMI_PROGBUF0) && dmiReq.addr <= (DMI_PROGBUF0 + cfg.nProgramBufferWords.U)
+  dmiProgramBufferIdxValid  := (dmiReq.addr >= DMI_PROGBUF0) && dmiReq.addr <= (DMI_PROGBUF0 + cfg.nProgramBufferWords.U)
 
   val dmiProgramBufferFields = List.tabulate(cfg.nProgramBufferWords) { ii =>
     val slice = programBufferMem.slice(ii * 4, (ii+1)*4)
@@ -642,14 +643,14 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //--------------------------------------------------------------
 
   // See the debug directory for contents and scripts to generate this.
-
-  val debugRomContents : Array[Byte] = Array(
-    0x6f, 0x00, 0xc0, 0x00, 0x6f, 0x00, 0x80, 0x02, 0x6f, 0x00, 0x80, 0x03,
+  def debugRomContents : Array[Byte] = Array (
+    0x6f, 0x00, 0xc0, 0x00, 0x6f, 0x00, 0xc0, 0x03, 0x6f, 0x00, 0x40, 0x02,
     0x0f, 0x00, 0xf0, 0x0f, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
     0x23, 0x20, 0x80, 0x10, 0x03, 0x04, 0x04, 0x40, 0x63, 0x1a, 0x80, 0x00,
     0x73, 0x24, 0x40, 0xf1, 0x6f, 0xf0, 0x5f, 0xff, 0x23, 0x26, 0x00, 0x10,
     0x73, 0x00, 0x10, 0x00, 0x73, 0x24, 0x20, 0x7b, 0x23, 0x22, 0x00, 0x10,
-    0x67, 0x00, 0x00, 0x90, 0x23, 0x24, 0x00, 0x10, 0x73, 0x00, 0x20, 0x7b
+    0x67, 0x00, 0x00, 0x90, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
+    0x23, 0x24, 0x80, 0x10, 0x73, 0x24, 0x20, 0x7b, 0x73, 0x00, 0x20, 0x7b
   ).map(_.toByte)
 
   val romRegFields  =  debugRomContents.map( x => RegField.r(8, (x.toInt & 0xFF).U))
@@ -657,7 +658,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //--------------------------------------------------------------
   // "Variable" ROM Generation
   //--------------------------------------------------------------
-  // f09ff06f                j       808 <resume>
+  // f05ff06f                j       804 <resume>
   // 00c0006f                j       910 <abstract>
   // 0f80006f                j       a00 <prog_buffer>
 
@@ -670,7 +671,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (goProgramBuffer) {
     whereToReg := 0x0f80006fL.U    // j       a00 <prog_buffer>
   }.elsewhen (goResume) {
-    whereToReg := 0xf09ff06fL.U    // j       808 <resume>
+    whereToReg := 0xf05ff06fL.U    // j       804 <resume>
   }.elsewhen (goAbstract) {
     whereToReg := 0x00c0006fL.U    // j       910 <abstract>
   }
@@ -679,7 +680,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (goProgramBuffer | goResume | goAbstract) {
     goReg := true.B
   }.elsewhen (hartGoingWrEn){
-    assert(hartGoingId === DMCONTROLReg.hartsel,
+    assert(hartGoingId === 0.U,
       "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
     goReg := false.B
   }
@@ -786,24 +787,24 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   // Combo
   val hartHalted   = (DMCONTROLRdData.hartstatus === DebugModuleHartStatus.Halted.id.U)
-  val ctrlStateNxt = ctrlStateReg
+  val ctrlStateNxt = Wire(init = ctrlStateReg)
   val autoexecVec  = Wire(init = Vec.fill(8){false.B})
 
-  if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataWrEn
-  if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataWrEn
+  if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec0
+  if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec1
+  if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec2
+  if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec3
+  if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec4
+  if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec5
+  if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec6
+  if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec7
 
   val autoexec = autoexecVec.reduce(_ || _)
 
   //------------------------
 
   // DMI Register Control and Status
-  ABSTRACTCSRdData.busy := (ctrlStateReg != CtrlState(Waiting))
+  abstractCommandBusy := (ctrlStateReg != CtrlState(Waiting))
 
   //TODO: What are we allowed to write in the event of an error?
   // The spec says not command will be 'started', but not that it won't
@@ -824,7 +825,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val commandWrIsUnsupported = Wire(init = true.B)
   val commandWrBadHaltResume = Wire(init = true.B)
   when (commandWrIsAccessRegister) {
-    when ((accessRegisterCommandWr.regno < 0x1000.U || accessRegisterCommandWr.regno > 0x101F.U)){
+    when ((accessRegisterCommandWr.regno >= 0x1000.U && accessRegisterCommandWr.regno <= 0x101F.U)){
       commandWrIsUnsupported := false.B
       commandWrBadHaltResume := ~hartHalted
     }
@@ -841,7 +842,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   errorUnsupported := (COMMANDWrEn && commandWrIsUnsupported) || (autoexec && commandRegIsUnsupported)
   errorHaltResume  := (COMMANDWrEn && commandWrBadHaltResume) || (autoexec && commandRegBadHaltResume)
 
-  val unclearedError = ABSTRACTCSReg.cmderr != DebugAbstractCommandError.None.id.U
+  val unclearedError = (ABSTRACTCSReg.cmderr != DebugAbstractCommandError.None.id.U)
 
   // TODO: Handle Other Command Types.
   val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister  && ~commandWrIsUnsupported  && ~commandWrBadHaltResume  && ~unclearedError
@@ -859,10 +860,13 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   }.elsewhen (ctrlStateReg === CtrlState(Generate)){
 
+    // We use this state to ensure that the COMMAND has been
+    // registered by the time that we need to use it, to avoid
+    // generating it directly from the COMMANDWrData.
     when (accessRegisterCommandReg.preexec) {
       ctrlStateNxt    := CtrlState(PreExec)
       goProgramBuffer := true.B
-    }.elsewhen (wrAccessRegisterCommand | regAccessRegisterCommand) {
+    }.otherwise {
       ctrlStateNxt := CtrlState(Abstract)
       goAbstract := true.B
     }
@@ -876,7 +880,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
       goAbstract := true.B
     }
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === DMCONTROLReg.hartsel,
+      assert(hartExceptionId === 0.U,
         "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B
@@ -896,7 +900,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
 
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === DMCONTROLReg.hartsel,
+      assert(hartExceptionId === 0.U, 
         "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorUnsupported := true.B
@@ -912,7 +916,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
 
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === DMCONTROLReg.hartsel,
+      assert(hartExceptionId === 0.U,
         "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B

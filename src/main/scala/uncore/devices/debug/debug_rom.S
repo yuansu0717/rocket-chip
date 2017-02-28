@@ -21,10 +21,10 @@
 	
 entry:
        jal zero, _entry
-exception: 
-       jal zero, _exception
 resume:
        jal zero, _resume
+exception: 
+       jal zero, _exception
 
 _entry:
         // This fence is required because the execution may have written something
@@ -51,16 +51,22 @@ _exception:
 // the "ROM" contents as needed.
 
 going:
-	csrr s0, CSR_DSCRATCH   // Restore s0 here
+	csrr s0, CSR_DSCRATCH          // Restore s0 here
 	sw zero, GOING(zero)           // When debug module sees this write, the OK_GO flag is reset.
-        jalr zero, zero, %lo(whereto) // Rocket-Chip has a specific hack which is that jalr in 
+        jalr zero, zero, %lo(whereto)  // Rocket-Chip has a specific hack which is that jalr in 
 	                               // Debug Mode will flush the I-Cache. We need that so that the 
 			               // remainder of the variable instructions will be what Debug Module
 	                               // intends.
 _resume:
-        sw      zero, RESUMING(zero) // Let the Debug Module know you're not halted anymore.
+        csrw CSR_DSCRATCH, s0   // Save s0 to allow signaling MHARTID
+	csrr s0, CSR_MHARTID  
+        sw   s0, RESUMING(zero) // Let the Debug Module know you're not halted anymore.
+        csrr s0, CSR_DSCRATCH   // Restore s0
         dret
 
+        // END OF ACTUAL "ROM" CONTENTS. BELOW ARE JUST TO MAKE IT SO I DON'T HAVE TO MANUALLY
+        // ASSEMBLE CODE THAT THE HW WILL PRODUCE.
+        
 .section .whereto
 whereto:
                               // Variable "ROM" This is : jal x0 abstract, jal x0 program_buffer, 
