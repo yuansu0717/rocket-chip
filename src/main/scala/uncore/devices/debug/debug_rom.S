@@ -6,6 +6,8 @@
 #define GOING     0x104
 #define RESUMING  0x108
 #define EXCEPTION 0x10C
+        
+
 
 // Region of memory where each hart has 1
 // byte to read.
@@ -53,10 +55,12 @@ _exception:
 going:
 	csrr s0, CSR_DSCRATCH          // Restore s0 here
 	sw zero, GOING(zero)           // When debug module sees this write, the OK_GO flag is reset.
-        jalr zero, zero, %lo(whereto)  // Rocket-Chip has a specific hack which is that jalr in 
+        jalr zero, zero, %lo(whereto)          // Rocket-Chip has a specific hack which is that jalr in 
 	                               // Debug Mode will flush the I-Cache. We need that so that the 
 			               // remainder of the variable instructions will be what Debug Module
 	                               // intends.
+
+        
 _resume:
         csrw CSR_DSCRATCH, s0   // Save s0 to allow signaling MHARTID
 	csrr s0, CSR_MHARTID  
@@ -66,15 +70,16 @@ _resume:
 
         // END OF ACTUAL "ROM" CONTENTS. BELOW ARE JUST TO MAKE IT SO I DON'T HAVE TO MANUALLY
         // ASSEMBLE CODE THAT THE HW WILL PRODUCE.
-        
+
 .section .whereto
-whereto:
-                              // Variable "ROM" This is : jal x0 abstract, jal x0 program_buffer, 
-	jal zero, resume      //                or jal x0 resume, as desired.	
-	jal zero, abstract    //                Debug Module state machine tracks what is 'desired'.
-	jal zero, prog_buffer //                We don't need to use jalr here because all of the 
-			      //                Variable ROM contents are set by 
-			      //                Debug Module before setting the OK_GO byte.
+whereto:        
+        nop     
+        // Variable "ROM" This is : jal x0 abstract, jal x0 program_buffer, 
+	//                or jal x0 resume, as desired.	
+	//                Debug Module state machine tracks what is 'desired'.
+	//                We don't need/want to use jalr here because all of the 
+	//                Variable ROM contents are set by 
+	//                Debug Module before setting the OK_GO byte.
 
         
 .section .abstract

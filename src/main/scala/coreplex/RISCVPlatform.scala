@@ -44,6 +44,8 @@ trait CoreplexRISCVPlatformModule extends CoreplexNetworkModule {
 
   // Synchronize the debug bus into the coreplex
   outer.debug.module.io.dmi <> FromAsyncDMI(io.debug)
+  // You could set this to something meaningful, e.g. "component is in reset."
+  outer.debug.module.io.debugUnavail := Vec.fill(p(DMKey).nComponents){Bool(false)}
 
   // Synchronize the rtc into the coreplex
   val rtcSync = ShiftRegister(io.rtcToggle, 3)

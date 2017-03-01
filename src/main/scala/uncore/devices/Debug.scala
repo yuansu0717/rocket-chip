@@ -53,13 +53,16 @@ object DsbRegAddrs{
   def GO           = 0x400
 
   def ROMBASE      = 0x800
+  def ENTRY        = 0x800
+  //def EXCEPTION    = 0x808
+  def RESUME       = 0x804
 
-  def WHERETO      = 0x900
-  def ABSTRACT     = 0x910
-  def PROGBUF      = 0xA00
+  def WHERETO      = 0x300
+  def ABSTRACT     = 0x304
+  def PROGBUF      = 0x340
 
   // This shows up in HartInfo
-  def DATA         = 0xB00
+  def DATA         = 0x380
 
   //Not implemented: Serial.
  
@@ -338,9 +341,12 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (~dmactive) {
     DMCONTROLReg := DMCONTROLReset
   } .otherwise {
-    DMCONTROLReg.reset     := DMCONTROLWrData.reset
-    DMCONTROLReg.haltreq   := DMCONTROLWrData.haltreq
-    DMCONTROLReg.resumereq := DMCONTROLWrData.resumereq
+    when (DMCONTROLWrEn) {
+      DMCONTROLReg.reset     := DMCONTROLWrData.reset
+      DMCONTROLReg.haltreq   := DMCONTROLWrData.haltreq
+      DMCONTROLReg.resumereq := DMCONTROLWrData.resumereq
+      DMCONTROLReg.hartsel   := DMCONTROLWrData.hartsel
+    }
   }
 
   // Put this last to override its own effects.
@@ -642,25 +648,11 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // Debug ROM
   //--------------------------------------------------------------
 
-  // See the debug directory for contents and scripts to generate this.
-  def debugRomContents : Array[Byte] = Array (
-    0x6f, 0x00, 0xc0, 0x00, 0x6f, 0x00, 0xc0, 0x03, 0x6f, 0x00, 0x40, 0x02,
-    0x0f, 0x00, 0xf0, 0x0f, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
-    0x23, 0x20, 0x80, 0x10, 0x03, 0x04, 0x04, 0x40, 0x63, 0x1a, 0x80, 0x00,
-    0x73, 0x24, 0x40, 0xf1, 0x6f, 0xf0, 0x5f, 0xff, 0x23, 0x26, 0x00, 0x10,
-    0x73, 0x00, 0x10, 0x00, 0x73, 0x24, 0x20, 0x7b, 0x23, 0x22, 0x00, 0x10,
-    0x67, 0x00, 0x00, 0x90, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
-    0x23, 0x24, 0x80, 0x10, 0x73, 0x24, 0x20, 0x7b, 0x73, 0x00, 0x20, 0x7b
-  ).map(_.toByte)
-
-  val romRegFields  =  debugRomContents.map( x => RegField.r(8, (x.toInt & 0xFF).U))
+  val romRegFields  =  DebugRomContents().map( x => RegField.r(8, (x.toInt & 0xFF).U))
 
   //--------------------------------------------------------------
   // "Variable" ROM Generation
   //--------------------------------------------------------------
-  // f05ff06f                j       804 <resume>
-  // 00c0006f                j       910 <abstract>
-  // 0f80006f                j       a00 <prog_buffer>
 
   val goProgramBuffer = Wire(init = false.B)
   val goResume        = Wire(init = false.B)
@@ -668,12 +660,24 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   val whereToReg = RegInit(0.U(32.W))
 
+  val jalProgBuf  = Wire(init = (new GeneratedUJ()).fromBits(rocket.Instructions.JAL.value.U))
+  jalProgBuf.setImm(PROGBUF - WHERETO)
+  jalProgBuf.rd := 0.U
+
+  val jalAbstract  = Wire(init = (new GeneratedUJ()).fromBits(rocket.Instructions.JAL.value.U))
+  jalAbstract.setImm(ABSTRACT - WHERETO)
+  jalProgBuf.rd := 0.U
+
+  val jalResume  = Wire(init = (new GeneratedUJ()).fromBits(rocket.Instructions.JAL.value.U))
+  jalResume.setImm(RESUME - WHERETO)
+  jalResume.rd := 0.U
+
   when (goProgramBuffer) {
-    whereToReg := 0x0f80006fL.U    // j       a00 <prog_buffer>
+    whereToReg := jalProgBuf.asUInt()
   }.elsewhen (goResume) {
-    whereToReg := 0xf05ff06fL.U    // j       804 <resume>
+    whereToReg := jalResume.asUInt()
   }.elsewhen (goAbstract) {
-    whereToReg := 0x00c0006fL.U    // j       910 <abstract>
+    whereToReg := jalAbstract.asUInt()
   }
 
   val goReg            = Reg (init = false.B)
@@ -692,27 +696,49 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   // Abstract Command Decoding & Generation
   //----------------------------
 
-  val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
-  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.toBits()))
+  val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.asUInt()))
+  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.asUInt()))
 
   // TODO: Quick Access
-  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.toBits()))
+  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.asUInt()))
 
   class GeneratedI extends Bundle {
-    val opcode = UInt(7.W)
-    val rd     = UInt(5.W)
-    val funct3 = UInt(3.W)
-    val rs1    = UInt(5.W)
     val imm    = UInt(12.W)
+    val rs1    = UInt(5.W)
+    val funct3 = UInt(3.W)
+    val rd     = UInt(5.W)
+    val opcode = UInt(7.W)
   }
 
   class GeneratedS extends Bundle {
-    val opcode = UInt(7.W)
-    val immlo  = UInt(5.W)
-    val funct3 = UInt(3.W)
-    val rs1    = UInt(5.W)
-    val rs2    = UInt(5.W)
     val immhi  = UInt(7.W)
+    val rs2    = UInt(5.W)
+    val rs1    = UInt(5.W)
+    val funct3 = UInt(3.W)
+    val immlo  = UInt(5.W)
+    val opcode = UInt(7.W)
+  }
+
+  class GeneratedUJ extends Bundle {
+    val imm3    = UInt(1.W)
+    val imm0    = UInt(10.W)
+    val imm1    = UInt(1.W)
+    val imm2    = UInt(8.W)
+    val rd      = UInt(5.W)
+    val opcode  = UInt(7.W)
+
+    def setImm(imm: Int) : Unit = {
+      // TODO: Check bounds of imm.
+
+      require(imm % 2 == 0, "Immediate must be even for UJ encoding.")
+      val immWire = Wire(init = imm.S(21.W))
+      val immBits = Wire(init = Vec(immWire.toBools))
+
+      imm0 := immBits.slice(1,  1  + 10).asUInt()
+      imm1 := immBits.slice(11, 11 + 11).asUInt()
+      imm2 := immBits.slice(12, 12 + 8).asUInt()
+      imm3 := immBits.slice(20, 20 + 1).asUInt()
+    }
   }
 
   val abstractGeneratedReg = Reg(UInt(32.W))
@@ -742,7 +768,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
   }
 
-  val ebreakInstruction = Wire(rocket.Instructions.EBREAK.value.U)
+  val ebreakInstruction = Wire(init = rocket.Instructions.EBREAK.value.U)
 
   //--------------------------------------------------------------
   // System Bus Access
@@ -856,6 +882,8 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
     when (wrAccessRegisterCommand || regAccessRegisterCommand) {
       ctrlStateNxt := CtrlState(Generate)
+    }.elsewhen(DMCONTROLWrEn && DMCONTROLWrData.resumereq) {
+      goResume := true.B
     }
 
   }.elsewhen (ctrlStateReg === CtrlState(Generate)){
