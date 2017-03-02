@@ -684,8 +684,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (goProgramBuffer | goResume | goAbstract) {
     goReg := true.B
   }.elsewhen (hartGoingWrEn){
-    assert(hartGoingId === 0.U,
-      "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
+//    assert(hartGoingId === 0.U, "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
     goReg := false.B
   }
 
@@ -908,8 +907,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
       goAbstract := true.B
     }
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === 0.U,
-        "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+//      assert(hartExceptionId === 0.U,  "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B
     }
@@ -928,8 +926,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
 
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === 0.U, 
-        "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+//      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorUnsupported := true.B
     }
@@ -944,8 +941,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
 
     when(hartExceptionWrEn) {
-      assert(hartExceptionId === 0.U,
-        "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+//      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B
     }
