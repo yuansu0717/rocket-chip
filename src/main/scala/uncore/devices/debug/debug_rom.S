@@ -7,8 +7,6 @@
 #define RESUMING  0x108
 #define EXCEPTION 0x10C
         
-
-
 // Region of memory where each hart has 1
 // byte to read.
 #define OK_GO 0x400
@@ -34,13 +32,14 @@ _entry:
         // is used to advance the state machine.
         fence
 	csrw CSR_DSCRATCH, s0  // Save s0 to allow signaling MHARTID
+
+        // We continue to let the hart know that we are halted in order that
+        // a DM which was reset is still made aware that a hart is halted.
+entry_loop:
 	csrr s0, CSR_MHARTID  
 	sw   s0, HALTED(zero)
-
-entry_loop:
 	lb   s0, OK_GO(s0) // 1 byte flag per hart. Only one hart advances.
 	bne  zero, s0, going
-	csrr s0, CSR_MHARTID
 	jal  zero, entry_loop
 
 

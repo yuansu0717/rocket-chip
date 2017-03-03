@@ -119,7 +119,7 @@ vsim-bmark-tests: $(VSIM_BMARK_TEST_STAMPS)
 vsim-regression-tests: $(VSIM_REGRESSION_TEST_STAMPS)
 vsim-torture: $(VSIM_TORTURE_STAMPS)
 
-submodule_names = chisel3 firrtl torture hardfloat $(ROCKETCHIP_ADDONS)
+submodule_names = firrtl torture hardfloat $(ROCKETCHIP_ADDONS)
 
 # Checks out all the rocket-chip submodules
 stamps/other-submodules.stamp:

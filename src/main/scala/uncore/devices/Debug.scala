@@ -684,7 +684,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (goProgramBuffer | goResume | goAbstract) {
     goReg := true.B
   }.elsewhen (hartGoingWrEn){
-//    assert(hartGoingId === 0.U, "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
+    assert(hartGoingId === 0.U, "Unexpected 'GOING' hart: %x, expected %x", hartGoingId, DMCONTROLReg.hartsel)
     goReg := false.B
   }
 
@@ -902,12 +902,12 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     // We can't just look at 'hartHalted' here, because
     // hartHaltedWrEn is overloaded to mean 'got an ebreak'
     // which may have happened when we were already halted.
-    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+    when(goReg === false.B && hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
       ctrlStateNxt := CtrlState(Abstract)
       goAbstract := true.B
     }
     when(hartExceptionWrEn) {
-//      assert(hartExceptionId === 0.U,  "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+      assert(hartExceptionId === 0.U,  "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B
     }
@@ -916,7 +916,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     // We can't just look at 'hartHalted' here, because
     // hartHaltedWrEn is overloaded to mean 'got an ebreak'
     // which may have happened when we were already halted.
-    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+    when(goReg === false.B && hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
       when (accessRegisterCommandReg.postexec) {
         ctrlStateNxt := CtrlState(PostExec)
         goProgramBuffer := true.B
@@ -926,7 +926,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     }
 
     when(hartExceptionWrEn) {
-//      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorUnsupported := true.B
     }
@@ -936,12 +936,12 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
     // We can't just look at 'hartHalted' here, because
     // hartHaltedWrEn is overloaded to mean 'got an ebreak'
     // which may have happened when we were already halted.
-    when(hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
+    when(goReg === false.B && hartHaltedWrEn && (hartHaltedId === DMCONTROLReg.hartsel)){
       ctrlStateNxt := CtrlState(Waiting)
     }
 
     when(hartExceptionWrEn) {
-//      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
+      assert(hartExceptionId === 0.U, "Unexpected 'EXCEPTION' hart, %x, expected %x", hartExceptionId, DMCONTROLReg.hartsel)
       ctrlStateNxt := CtrlState(Waiting)
       errorException := true.B
     }
