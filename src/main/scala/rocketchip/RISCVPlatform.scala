@@ -33,7 +33,7 @@ trait PeripheryJTAGModule extends TopNetworkModule {
   outer.coreplex.module.io.debug <> dtm.io.debug
 
   dtm.clock := io.jtag.TCK
-  dtm.reset := dtm.io.fsmReset
+  dtm.reset := ~io.jtag.TRSTn//dtm.io.fsmReset
   dtm.io.jtagPOReset := Bool(false)
 }
 
@@ -79,7 +79,7 @@ trait PeripheryDebugModule extends TopNetworkModule {
   io.jtag.foreach { jtag =>
     val dtm = Module (new JtagDTMWithSync)
     dtm.clock := jtag.TCK
-    dtm.reset := dtm.io.fsmReset
+    dtm.reset := ~jtag.TRSTn//dtm.io.fsmReset
     dtm.io.jtag <> jtag
     dtm.io.jtagPOReset := Bool(false)
     outer.coreplex.module.io.debug <> dtm.io.debug

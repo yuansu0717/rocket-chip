@@ -9,6 +9,7 @@ import util._
 import config._
 import jtag._
 import uncore.devices.{DMIConsts, DMIReq, DMIResp}
+import chisel3.experimental.{withReset}
 
 case object IncludeJtagDTM extends Field[Boolean]
 
@@ -266,21 +267,23 @@ class JtagDTMWithSync(implicit val p: Parameters) extends Module {
     // This should be flip.
     val jtag = Flipped(new JTAGIO())
     val debug = new AsyncDMIIO
-    val fsmReset = Bool(OUTPUT)
     val jtagPOReset = Bool(INPUT)
   }
+
+  val fsmReset = Wire(Bool())
+  val io_dmi = Wire (new DMIIO)
 
   val jtag_dtm = Module(new DebugTransportModuleJTAG(
     debugAddrBits  = p(DMKey).nDMIAddrSize,
     c = p(JtagDTMKey))(p))
+  jtag_dtm.reset := jtag_dtm.io.fsmReset
 
   jtag_dtm.io.jtag <> io.jtag
   jtag_dtm.io.jtagPOReset := io.jtagPOReset
-
-  val io_dmi = Wire (new DMIIO)
-  io.debug <> ToAsyncDMI(io_dmi)
-
   io_dmi <> jtag_dtm.io.dmi
 
-  io.fsmReset := jtag_dtm.io.fsmReset
+  // This causes this logic to be reset by 'JTAGDTMWithSync' reset
+  io.debug <> ToAsyncDMI(io_dmi)
+ 
+ 
 }
