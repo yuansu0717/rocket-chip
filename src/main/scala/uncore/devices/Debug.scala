@@ -296,6 +296,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   val dmiReq    = io.dmi.req.bits
   val dmiWrEn   = Wire(Bool())
+  val dmiRdEn   = Wire(Bool())
 
   // --- regmapper outputs
 
@@ -547,7 +548,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   dmiAbstractDataIdxValid  := (dmiReq.addr >= DMI_DATA0) && (dmiReq.addr <= (DMI_DATA0 + cfg.nAbstractDataWords.U))
 
   val dmiAbstractDataWrEn  = dmiAbstractDataIdxValid && dmiWrEn
-
+  val dmiAbstractDataRdEn  = dmiAbstractDataIdxValid && dmiRdEn
 
   val dmiAbstractDataFields = List.tabulate(cfg.nAbstractDataWords) { ii =>
     val slice = abstractDataMem.slice(ii * 4, (ii+1)*4)
@@ -626,6 +627,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   io.dmi.resp.bits  := dmiRespReg
 
   dmiWrEn := (dmiReq.op === dmi_OP_WRITE) && io.dmi.req.fire()
+  dmiRdEn := (dmiReq.op === dmi_OP_READ)  && io.dmi.req.fire()
 
   // -----------------------------------------
   // DMI Access State Machine Update (Seq)
@@ -814,14 +816,16 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   val ctrlStateNxt = Wire(init = ctrlStateReg)
   val autoexecVec  = Wire(init = Vec.fill(8){false.B})
 
-  if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec0
-  if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec1
-  if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec2
-  if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec3
-  if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec4
-  if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec5
-  if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec6
-  if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataWrEn && ABSTRACTCSReg.autoexec7
+  val dmiAbstractDataAccess = dmiAbstractDataWrEn | dmiAbstractDataRdEn
+
+  if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec0
+  if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec1
+  if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec2
+  if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec3
+  if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec4
+  if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec5
+  if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec6
+  if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec7
 
   val autoexec = autoexecVec.reduce(_ || _)
 
