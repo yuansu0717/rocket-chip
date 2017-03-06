@@ -43,8 +43,7 @@ class MStatus extends Bundle {
 
 class DCSR extends Bundle {
   val xdebugver = UInt(width = 2)
-  val ndreset = Bool()
-  val fullreset = Bool()
+  val zero4 = UInt(width=2)
   val zero3 = UInt(width = 12)
   val ebreakm = Bool()
   val ebreakh = Bool()
@@ -54,9 +53,7 @@ class DCSR extends Bundle {
   val stopcycle = Bool()
   val stoptime = Bool()
   val cause = UInt(width = 3)
-  val debugint = Bool()
-  val zero1 = Bool()
-  val halt = Bool()
+  val zero1 = UInt(width=3)
   val step = Bool()
   val prv = UInt(width = PRV.SZ)
 }
@@ -172,6 +169,7 @@ class CSRFile(implicit p: Parameters) extends CoreModule()(p)
   reset_dcsr.xdebugver := 1
   reset_dcsr.prv := PRV.M
   val reg_dcsr = Reg(init=reset_dcsr)
+  val reg_debugint = Reg(init = Bool(false))
 
   val (supported_interrupts, delegable_interrupts) = {
     val sup = Wire(init=new MIP().fromBits(0))
@@ -260,7 +258,7 @@ class CSRFile(implicit p: Parameters) extends CoreModule()(p)
   io.bp := reg_bp take nBreakpoints
 
   // debug interrupts are only masked by being in debug mode
-  when (Bool(usingDebug) && reg_dcsr.debugint && !reg_debug) {
+  when (Bool(usingDebug) && reg_debugint && !reg_debug) {
     io.interrupt := true
     io.interrupt_cause := UInt(interruptMSB) + CSR.debugIntCause
   }
@@ -446,10 +444,12 @@ class CSRFile(implicit p: Parameters) extends CoreModule()(p)
       Causes.fault_load, Causes.fault_store, Causes.fault_fetch)
 
     when (trapToDebug) {
-      reg_debug := true
-      reg_dpc := epc
-      reg_dcsr.cause := Mux(reg_singleStepped, 4, Mux(causeIsDebugInt, 3, Mux[UInt](causeIsDebugTrigger, 2, 1)))
-      reg_dcsr.prv := trimPrivilege(reg_mstatus.prv)
+      when (!reg_debug) {
+        reg_debug := true
+        reg_dpc := epc
+        reg_dcsr.cause := Mux(reg_singleStepped, 4, Mux(causeIsDebugInt, 3, Mux[UInt](causeIsDebugTrigger, 2, 1)))
+        reg_dcsr.prv := trimPrivilege(reg_mstatus.prv)
+      }
     }.elsewhen (delegate) {
       reg_sepc := formEPC(epc)
       reg_scause := cause
@@ -562,7 +562,6 @@ class CSRFile(implicit p: Parameters) extends CoreModule()(p)
     if (usingDebug) {
       when (decoded_addr(CSRs.dcsr)) {
         val new_dcsr = new DCSR().fromBits(wdata)
-        reg_dcsr.halt := new_dcsr.halt
         reg_dcsr.step := new_dcsr.step
         reg_dcsr.ebreakm := new_dcsr.ebreakm
         if (usingVM) reg_dcsr.ebreaks := new_dcsr.ebreaks
@@ -618,7 +617,7 @@ class CSRFile(implicit p: Parameters) extends CoreModule()(p)
   }
 
   reg_mip <> io.interrupts
-  reg_dcsr.debugint := io.interrupts.debug
+  reg_debugint := io.interrupts.debug
 
   if (!usingVM) {
     reg_mideleg := 0
