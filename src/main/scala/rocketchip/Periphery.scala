@@ -37,47 +37,62 @@ case object ZeroConfig extends Field[ZeroConfig]
 /** Utility trait for quick access to some relevant parameters */
 trait HasPeripheryParameters {
   implicit val p: Parameters
-  lazy val peripheryBusConfig = p(PeripheryBusConfig)
-  lazy val socBusConfig = p(SOCBusConfig)
-  lazy val cacheBlockBytes = p(CacheBlockBytes)
-  lazy val peripheryBusArithmetic = p(PeripheryBusArithmetic)
+  def peripheryBusConfig = p(PeripheryBusConfig)
+  def peripheryBusBytes = peripheryBusConfig.beatBytes
+  def socBusConfig = p(SOCBusConfig)
+  def socBusBytes = socBusConfig.beatBytes
+  def cacheBlockBytes = p(CacheBlockBytes)
+  def peripheryBusArithmetic = p(PeripheryBusArithmetic)
+  def nMemoryChannels = p(coreplex.BankedL2Config).nMemoryChannels
 }
 
 /////
 
 trait PeripheryExtInterrupts {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
 
-  val extInterrupts = IntBlindInputNode(p(NExtTopInterrupts))
-  val extInterruptXing = LazyModule(new IntXing)
+  private val device = new Device with DeviceInterrupts {
+    def describe(resources: ResourceBindings): Description = {
+      Description("soc/offchip-interrupts", describeInterrupts(resources))
+    }
+  }
 
-  intBus.intnode := extInterruptXing.intnode
-  extInterruptXing.intnode := extInterrupts
+  val nExtInterrupts = p(NExtTopInterrupts)
+  val extInterrupts = IntInternalInputNode(IntSourcePortSimple(num = nExtInterrupts, resources = device.int))
+
+  if (nExtInterrupts > 0) {
+    val extInterruptXing = LazyModule(new IntXing)
+    intBus.intnode := extInterruptXing.intnode
+    extInterruptXing.intnode := extInterrupts
+  }
 }
 
 trait PeripheryExtInterruptsBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryExtInterrupts
   } =>
-  val interrupts = outer.extInterrupts.bundleIn
+  val interrupts = UInt(INPUT, width = outer.nExtInterrupts)
 }
 
 trait PeripheryExtInterruptsModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryExtInterrupts
     val io: PeripheryExtInterruptsBundle
   } =>
+  outer.extInterrupts.bundleIn.flatten.zipWithIndex.foreach { case(o, i) => o := io.interrupts(i) }
 }
 
 /////
 
 trait PeripheryMasterAXI4Mem {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
   val module: PeripheryMasterAXI4MemModule
 
   private val config = p(ExtMem)
   private val channels = p(BankedL2Config).nMemoryChannels
   private val lineBytes = p(CacheBlockBytes)
+
+  private val device = new MemoryDevice
 
   val mem_axi4 = AXI4BlindOutputNode(Seq.tabulate(channels) { channel =>
     val base = AddressSet(config.base, config.size-1)
@@ -86,6 +101,7 @@ trait PeripheryMasterAXI4Mem {
     AXI4SlavePortParameters(
       slaves = Seq(AXI4SlaveParameters(
         address       = base.intersect(filter).toList,
+        resources     = device.reg,
         regionType    = RegionType.UNCACHED,   // cacheable
         executable    = true,
         supportsWrite = TransferSizes(1, 256), // The slave supports 1-256 byte transfers
@@ -105,14 +121,14 @@ trait PeripheryMasterAXI4Mem {
 }
 
 trait PeripheryMasterAXI4MemBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryMasterAXI4Mem
   } =>
   val mem_axi4 = outer.mem_axi4.bundleOut
 }
 
 trait PeripheryMasterAXI4MemModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryMasterAXI4Mem
     val io: PeripheryMasterAXI4MemBundle
   } =>
@@ -121,7 +137,7 @@ trait PeripheryMasterAXI4MemModule {
 /////
 
 trait PeripheryZero {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
   val module: PeripheryZeroModule
 
   private val config = p(ZeroConfig)
@@ -136,13 +152,13 @@ trait PeripheryZero {
 }
 
 trait PeripheryZeroBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryZero
   } =>
 }
 
 trait PeripheryZeroModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryZero
     val io: PeripheryZeroBundle
   } =>
@@ -152,12 +168,14 @@ trait PeripheryZeroModule {
 
 // PeripheryMasterAXI4MMIO is an example, make your own cake pattern like this one.
 trait PeripheryMasterAXI4MMIO {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
 
   private val config = p(ExtBus)
+  private val device = new SimpleDevice("mmio", Nil)
   val mmio_axi4 = AXI4BlindOutputNode(Seq(AXI4SlavePortParameters(
     slaves = Seq(AXI4SlaveParameters(
       address       = List(AddressSet(BigInt(config.base), config.size-1)),
+      resources     = device.reg,
       executable    = true,                  // Can we run programs on this memory?
       supportsWrite = TransferSizes(1, 256), // The slave supports 1-256 byte transfers
       supportsRead  = TransferSizes(1, 256),
@@ -173,14 +191,14 @@ trait PeripheryMasterAXI4MMIO {
 }
 
 trait PeripheryMasterAXI4MMIOBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryMasterAXI4MMIO
   } =>
   val mmio_axi4 = outer.mmio_axi4.bundleOut
 }
 
 trait PeripheryMasterAXI4MMIOModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryMasterAXI4MMIO
     val io: PeripheryMasterAXI4MMIOBundle
   } =>
@@ -190,26 +208,26 @@ trait PeripheryMasterAXI4MMIOModule {
 /////
 
 // PeripherySlaveAXI4 is an example, make your own cake pattern like this one.
-trait PeripherySlaveAXI4 extends TopNetwork {
+trait PeripherySlaveAXI4 extends HasTopLevelNetworks {
   private val config = p(ExtIn)
-  val l2_axi4 = AXI4BlindInputNode(Seq(AXI4MasterPortParameters(
+  val l2FrontendAXI4Node = AXI4BlindInputNode(Seq(AXI4MasterPortParameters(
     masters = Seq(AXI4MasterParameters(
       id = IdRange(0, 1 << config.idBits))))))
 
-  l2.node :=
+  l2FrontendBus.node :=
     TLSourceShrinker(1 << config.sourceBits)(
     TLWidthWidget(config.beatBytes)(
     AXI4ToTL()(
     AXI4Fragmenter()(
-    l2_axi4))))
+    l2FrontendAXI4Node))))
 }
 
-trait PeripherySlaveAXI4Bundle extends TopNetworkBundle {
+trait PeripherySlaveAXI4Bundle extends HasTopLevelNetworksBundle {
   val outer: PeripherySlaveAXI4
-  val l2_axi4 = outer.l2_axi4.bundleIn
+  val l2_frontend_bus_axi4 = outer.l2FrontendAXI4Node.bundleIn
 }
 
-trait PeripherySlaveAXI4Module extends TopNetworkModule {
+trait PeripherySlaveAXI4Module extends HasTopLevelNetworksModule {
   val outer: PeripherySlaveAXI4
   val io: PeripherySlaveAXI4Bundle
   // nothing to do
@@ -219,12 +237,14 @@ trait PeripherySlaveAXI4Module extends TopNetworkModule {
 
 // Add an external TL-UL slave
 trait PeripheryMasterTLMMIO {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
 
   private val config = p(ExtBus)
+  private val device = new SimpleDevice("mmio", Nil)
   val mmio_tl = TLBlindOutputNode(Seq(TLManagerPortParameters(
     managers = Seq(TLManagerParameters(
       address            = List(AddressSet(BigInt(config.base), config.size-1)),
+      resources          = device.reg,
       executable         = true,
       supportsGet        = TransferSizes(1, cacheBlockBytes),
       supportsPutFull    = TransferSizes(1, cacheBlockBytes),
@@ -239,14 +259,14 @@ trait PeripheryMasterTLMMIO {
 }
 
 trait PeripheryMasterTLMMIOBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryMasterTLMMIO
   } =>
   val mmio_tl = outer.mmio_tl.bundleOut
 }
 
 trait PeripheryMasterTLMMIOModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryMasterTLMMIO
     val io: PeripheryMasterTLMMIOBundle
   } =>
@@ -256,24 +276,24 @@ trait PeripheryMasterTLMMIOModule {
 /////
 
 // NOTE: this port is NOT allowed to issue Acquires
-trait PeripherySlaveTL extends TopNetwork {
+trait PeripherySlaveTL extends HasTopLevelNetworks {
   private val config = p(ExtIn)
-  val l2_tl = TLBlindInputNode(Seq(TLClientPortParameters(
+  val l2FrontendTLNode = TLBlindInputNode(Seq(TLClientPortParameters(
     clients = Seq(TLClientParameters(
       sourceId = IdRange(0, 1 << config.idBits))))))
 
-  l2.node :=
+  l2FrontendBus.node :=
     TLSourceShrinker(1 << config.sourceBits)(
     TLWidthWidget(config.beatBytes)(
-    l2_tl))
+    l2FrontendTLNode))
 }
 
-trait PeripherySlaveTLBundle extends TopNetworkBundle {
+trait PeripherySlaveTLBundle extends HasTopLevelNetworksBundle {
   val outer: PeripherySlaveTL
-  val l2_tl = outer.l2_tl.bundleIn
+  val l2_frontend_bus_tl = outer.l2FrontendTLNode.bundleIn
 }
 
-trait PeripherySlaveTLModule extends TopNetworkModule {
+trait PeripherySlaveTLModule extends HasTopLevelNetworksModule {
   val outer: PeripherySlaveTL
   val io: PeripherySlaveTLBundle
   // nothing to do
@@ -282,24 +302,24 @@ trait PeripherySlaveTLModule extends TopNetworkModule {
 /////
 
 trait PeripheryBootROM {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
   val coreplex: CoreplexRISCVPlatform
 
   private val bootrom_address = 0x1000
   private val bootrom_size = 0x1000
-  private lazy val bootrom_contents = GenerateBootROM(p, bootrom_address, coreplex.configString)
+  private lazy val bootrom_contents = GenerateBootROM(p, bootrom_address, coreplex.dts)
   val bootrom = LazyModule(new TLROM(bootrom_address, bootrom_size, bootrom_contents, true, peripheryBusConfig.beatBytes))
   bootrom.node := TLFragmenter(peripheryBusConfig.beatBytes, cacheBlockBytes)(peripheryBus.node)
 }
 
 trait PeripheryBootROMBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryBootROM
   } =>
 }
 
 trait PeripheryBootROMModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryBootROM
     val io: PeripheryBootROMBundle
   } =>
@@ -308,20 +328,20 @@ trait PeripheryBootROMModule {
 /////
 
 trait PeripheryTestRAM {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
 
   val testram = LazyModule(new TLRAM(AddressSet(0x52000000, 0xfff), true, peripheryBusConfig.beatBytes))
   testram.node := TLFragmenter(peripheryBusConfig.beatBytes, cacheBlockBytes)(peripheryBus.node)
 }
 
 trait PeripheryTestRAMBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryTestRAM
   } =>
 }
 
 trait PeripheryTestRAMModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryTestRAM
     val io: PeripheryTestRAMBundle
   } =>
@@ -330,19 +350,19 @@ trait PeripheryTestRAMModule {
 /////
 
 trait PeripheryTestBusMaster {
-  this: TopNetwork =>
+  this: HasTopLevelNetworks =>
   val fuzzer = LazyModule(new TLFuzzer(5000))
   peripheryBus.node := fuzzer.node
 }
 
 trait PeripheryTestBusMasterBundle {
-  this: TopNetworkBundle {
+  this: HasTopLevelNetworksBundle {
     val outer: PeripheryTestBusMaster
   } =>
 }
 
 trait PeripheryTestBusMasterModule {
-  this: TopNetworkModule {
+  this: HasTopLevelNetworksModule {
     val outer: PeripheryTestBusMaster
     val io: PeripheryTestBusMasterBundle
   } =>

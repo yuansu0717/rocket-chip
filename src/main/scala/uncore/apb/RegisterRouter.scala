@@ -61,10 +61,10 @@ object APBRegisterNode
 abstract class APBRegisterRouterBase(address: AddressSet, interrupts: Int, concurrency: Int, beatBytes: Int, undefZero: Boolean, executable: Boolean)(implicit p: Parameters) extends LazyModule
 {
   val node = APBRegisterNode(address, concurrency, beatBytes, undefZero, executable)
-  val intnode = uncore.tilelink2.IntSourceNode(interrupts)
+  val intnode = uncore.tilelink2.IntSourceNode(uncore.tilelink2.IntSourcePortSimple(num = interrupts))
 }
 
-case class APBRegBundleArg(interrupts: Vec[Vec[Bool]], in: Vec[APBBundle])(implicit val p: Parameters)
+case class APBRegBundleArg(interrupts: util.HeterogeneousBag[Vec[Bool]], in: util.HeterogeneousBag[APBBundle])(implicit val p: Parameters)
 
 class APBRegBundleBase(arg: APBRegBundleArg) extends Bundle
 {
