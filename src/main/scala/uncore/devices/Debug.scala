@@ -696,11 +696,10 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   //----------------------------
 
   val accessRegisterCommandWr  = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.asUInt()))
-  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDWrData.asUInt()))
+  val accessRegisterCommandReg = Wire(init = (new ACCESS_REGISTERFields()).fromBits(COMMANDReg.asUInt()))
 
   // TODO: Quick Access
-  val quickAccessCommand    = Wire(init = (new QUICK_ACCESSFields()).fromBits(COMMANDReg.asUInt()))
-
+ 
   class GeneratedI extends Bundle {
     val imm    = UInt(12.W)
     val rs1    = UInt(5.W)
@@ -800,7 +799,7 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
   object CtrlState extends scala.Enumeration {
     type CtrlState = Value
-    val Waiting, Generate, PreExec, Abstract, PostExec = Value
+    val Waiting, CheckGenerate, PreExec, Abstract, PostExec = Value
 
     def apply( t : Value) : UInt = {
       t.id.U(log2Up(values.size).W)
@@ -844,35 +843,20 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
 
 
   // TODO: Other Commands
-  val commandWrIsAccessRegister  = (COMMANDWrData.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
+  val commandWrIsAccessRegister = (COMMANDWrData.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
   val commandRegIsAccessRegister = (COMMANDReg.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
 
-  val commandWrIsUnsupported = Wire(init = true.B)
-  val commandWrBadHaltResume = Wire(init = true.B)
-  when (commandWrIsAccessRegister) {
-    when ((accessRegisterCommandWr.regno >= 0x1000.U && accessRegisterCommandWr.regno <= 0x101F.U)){
-      commandWrIsUnsupported := false.B
-      commandWrBadHaltResume := ~hartHalted
-    }
-  }
   val commandRegIsUnsupported = Wire(init = true.B)
-  val commandRegBadHaltResume = Wire(init = true.B)
+  val commandRegBadHaltResume = Wire(init = false.B)
   when (commandRegIsAccessRegister) {
-    when ((accessRegisterCommandReg.regno < 0x1000.U || accessRegisterCommandReg.regno > 0x101F.U)){
+    when ((accessRegisterCommandReg.regno >= 0x1000.U && accessRegisterCommandReg.regno <= 0x101F.U)){
       commandRegIsUnsupported := false.B
       commandRegBadHaltResume := ~hartHalted
     }
   }
 
-  errorUnsupported := (COMMANDWrEn && commandWrIsUnsupported) || (autoexec && commandRegIsUnsupported)
-  errorHaltResume  := (COMMANDWrEn && commandWrBadHaltResume) || (autoexec && commandRegBadHaltResume)
-
-  val unclearedError = (ABSTRACTCSReg.cmderr != DebugAbstractCommandError.None.id.U)
-
-  // TODO: Handle Other Command Types.
-  val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister  && ~commandWrIsUnsupported  && ~commandWrBadHaltResume  && ~unclearedError
-  val regAccessRegisterCommand = autoexec    && commandRegIsAccessRegister && ~commandRegIsUnsupported && ~commandRegBadHaltResume && ~unclearedError
-
+  val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister
+  val regAccessRegisterCommand = autoexec    && commandRegIsAccessRegister
   //------------------------
   // Variable ROM STATE MACHINE
   // -----------------------
@@ -880,24 +864,33 @@ trait DebugModule extends Module with HasDebugModuleParameters with HasRegMap {
   when (ctrlStateReg === CtrlState(Waiting)){
 
     when (wrAccessRegisterCommand || regAccessRegisterCommand) {
-      ctrlStateNxt := CtrlState(Generate)
+      ctrlStateNxt := CtrlState(CheckGenerate)
     }.elsewhen(DMCONTROLWrEn && DMCONTROLWrData.resumereq) {
       goResume := true.B
     }
 
-  }.elsewhen (ctrlStateReg === CtrlState(Generate)){
+  }.elsewhen (ctrlStateReg === CtrlState(CheckGenerate)){
 
     // We use this state to ensure that the COMMAND has been
     // registered by the time that we need to use it, to avoid
     // generating it directly from the COMMANDWrData.
-    when (accessRegisterCommandReg.preexec) {
-      ctrlStateNxt    := CtrlState(PreExec)
-      goProgramBuffer := true.B
+
+    when (commandRegIsUnsupported) {
+      errorUnsupported := true.B
+      ctrlStateNxt := CtrlState(Waiting)
+    }.elsewhen (commandRegBadHaltResume){
+      errorHaltResume := true.B
+      ctrlStateNxt := CtrlState(Waiting)
     }.otherwise {
-      ctrlStateNxt := CtrlState(Abstract)
-      goAbstract := true.B
+      when (accessRegisterCommandReg.preexec) {
+        ctrlStateNxt    := CtrlState(PreExec)
+        goProgramBuffer := true.B
+      }.otherwise {
+        ctrlStateNxt := CtrlState(Abstract)
+        goAbstract := true.B
+      }
     }
-  }.elsewhen (ctrlStateReg === CtrlState(PreExec)) {
+    }.elsewhen (ctrlStateReg === CtrlState(PreExec)) {
 
     // We can't just look at 'hartHalted' here, because
     // hartHaltedWrEn is overloaded to mean 'got an ebreak'
