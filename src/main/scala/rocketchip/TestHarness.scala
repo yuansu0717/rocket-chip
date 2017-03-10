@@ -95,7 +95,7 @@ class JTAGVPI(implicit val p: Parameters) extends BlackBox {
     // Note that this synchronization *should* be done in
     // an actual SoC, not the testbench. It is not included
     // within ExampleRocketChipTop.
-    dutio.TRSTn.foreach{ _:= false.B}
+    dutio.TRSTn.foreach{ _:= true.B}
     jtckPOReset := util.ResetCatchAndSync(dutio.TCK, tbreset)
 
     io.enable    := ~tbreset
