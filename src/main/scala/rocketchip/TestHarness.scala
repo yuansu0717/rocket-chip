@@ -24,7 +24,7 @@ class TestHarness()(implicit p: Parameters) extends Module {
   if (!p(IncludeJtagDTM)) {
     val dtm = Module(new SimDTM).connect(clock, reset, dut.io.debug.get, io.success)
   } else {
-    val jtag = Module(new JTAGVPI).connect(dut.io.jtag.get, reset, io.success)
+    val jtag = Module(new JTAGVPI).connect(dut.io.jtag.get, dut.io.jtckPOReset.get, reset, io.success)
   }
 
   val mmio_sim = Module(LazyModule(new SimAXIMem(1, 4096)).module)
@@ -67,10 +67,12 @@ class SimDTM(implicit p: Parameters) extends BlackBox {
     val exit = UInt(OUTPUT, 32)
   }
 
-  def connect(tbclk: Clock, tbreset: Bool, dutio: uncore.devices.DMIIO, tbsuccess: Bool) = {
+  def connect(tbclk: Clock, tbreset: Bool, dutio: uncore.devices.ClockedDMIIO, tbsuccess: Bool) = {
     io.clk := tbclk
     io.reset := tbreset
     dutio <> io.debug
+    dutio.dmiClock := tbclk
+    dutio.dmiReset := tbreset
 
     tbsuccess := io.exit === UInt(1)
     when (io.exit >= UInt(2)) {
@@ -82,17 +84,19 @@ class SimDTM(implicit p: Parameters) extends BlackBox {
 
 class JTAGVPI(implicit val p: Parameters) extends BlackBox {
   val io = new Bundle {
-    val jtag = new JTAGIO()
+    val jtag = new JTAGIO(hasTRSTn = true)
     val enable = Bool(INPUT)
     val init_done = Bool(INPUT)
   }
 
-  def connect(dutio: JTAGIO, tbreset: Bool, tbsuccess: Bool) = {
+  def connect(dutio: JTAGIO, jtckPOReset: Bool, tbreset: Bool, tbsuccess: Bool) = {
     dutio <> io.jtag
 
-    // Neither OpenOCD nor JtagVPI drive TRST,
-    // but this design should work even without TRST.
-    dutio.TRSTn  := ~tbreset
+    // Note that this synchronization *should* be done in
+    // an actual SoC, not the testbench. It is not included
+    // within ExampleRocketChipTop.
+    dutio.TRSTn.foreach{ _:= false.B}
+    jtckPOReset := util.ResetCatchAndSync(dutio.TCK, tbreset)
 
     io.enable    := ~tbreset
     io.init_done := ~tbreset

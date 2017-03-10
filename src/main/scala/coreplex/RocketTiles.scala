@@ -31,28 +31,26 @@ trait HasRocketTiles extends CoreplexRISCVPlatform {
       case PAddrBits => l1tol2.node.edgesIn(0).bundle.addressBits
     }
 
-    // Hack debug interrupt into a node (future debug module should use diplomacy)
-    val debugNode = IntInternalInputNode(IntSourcePortSimple())
-
     val intBar = LazyModule(new IntXbar)
-    intBar.intnode := debugNode
+    intBar.intnode := debug.intnode // Debug Interrupt
     intBar.intnode := clint.intnode // msip+mtip
     intBar.intnode := plic.intnode // meip
     if (c.core.useVM) intBar.intnode := plic.intnode // seip
 
     crossing match {
       case Synchronous => {
-        val tile = LazyModule(new RocketTile(c, i)(pWithExtra))
-        val buffer = LazyModule(new TLBuffer)
-        buffer.node :=* tile.masterNode
-        l1tol2.node :=* buffer.node
-        tile.slaveNode :*= cbus.node
-        tile.intNode := intBar.intnode
+        val wrapper = LazyModule(new SyncRocketTile(c, i)(pWithExtra))
+        val sink = LazyModule(new TLBuffer)
+        val source = LazyModule(new TLBuffer)
+        sink.node :=* wrapper.masterNode
+        l1tol2.node :=* sink.node
+        wrapper.slaveNode :*= source.node
+        wrapper.intNode := intBar.intnode
+        source.node :*= cbus.node
         (io: HasRocketTilesBundle) => {
           // leave clock as default (simpler for hierarchical PnR)
-          tile.module.io.hartid := UInt(i)
-          tile.module.io.resetVector := io.resetVector
-          debugNode.bundleOut(0)(0) := debug.module.io.debugInterrupts(i)
+          wrapper.module.io.hartid := UInt(i)
+          wrapper.module.io.resetVector := io.resetVector
         }
       }
       case Asynchronous(depth, sync) => {
@@ -69,7 +67,6 @@ trait HasRocketTiles extends CoreplexRISCVPlatform {
           wrapper.module.reset := io.tcrs(i).reset
           wrapper.module.io.hartid := UInt(i)
           wrapper.module.io.resetVector := io.resetVector
-          debugNode.bundleOut(0)(0) := debug.module.io.debugInterrupts(i)
         }
       }
       case Rational => {
@@ -86,7 +83,6 @@ trait HasRocketTiles extends CoreplexRISCVPlatform {
           wrapper.module.reset := io.tcrs(i).reset
           wrapper.module.io.hartid := UInt(i)
           wrapper.module.io.resetVector := io.resetVector
-          debugNode.bundleOut(0)(0) := debug.module.io.debugInterrupts(i)
         }
       }
     }

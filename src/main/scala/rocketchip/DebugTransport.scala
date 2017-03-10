@@ -65,8 +65,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
 
   val io = new Bundle {
     val dmi = new DMIIO()(p)
-    val jtag = Flipped(new JTAGIO())
-    val jtagPOReset = Bool(INPUT)
+    val jtag = Flipped(new JTAGIO(hasTRSTn = false))
+    val jtckPOReset = Bool(INPUT)
     val fsmReset = Bool(OUTPUT)
   }
 
@@ -221,7 +221,7 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
 
   tapIO.jtag <> io.jtag
 
-  tapIO.control.jtagPOReset := io.jtagPOReset
+  tapIO.control.jtckPOReset := io.jtckPOReset
 
   //--------------------------------------------------------
   // Reset Generation (this is fed back to us by the instantiating module,
@@ -229,61 +229,4 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
 
   io.fsmReset := tapIO.output.reset
 
-}
-
-/*  JTAG-based Debug Transport Module
- *  and synchronization logic.
- *  
- *  This implements JTAG interface described
- *  in the RISC-V Debug Specification
- *
- * This Module is currently a
- *  wrapper around a JTAG implementation
- *  of the Debug Transport Module.
- *  This is black-boxed because
- *  Chisel doesn't currently support:
- *    - Negative Edge Clocking
- *    - Asynchronous Resets
- *   (The tristate requirements of JTAG are exported from the 
- *    Chisel domain with the DRV_TDO signal).
- *
- *  The 'TRST' input is used to asynchronously
- *  reset the JTAG TAP. 
- *  This design requires that TRST be
- *  synchronized to TCK (for de-assert) outside
- *  of this module. 
- * 
- *  TRSTn is not a required input. If unused, it 
- *  should be tied high.
- *  
- *  clock and reset of this block should be  TCK and dtmReset
- */
-
-class JtagDTMWithSync(implicit val p: Parameters) extends Module {
-
-  // io.DMIIO <-> Sync <-> DMIIO <-> DTM
-
-  val io = new Bundle {
-    // This should be flip.
-    val jtag = Flipped(new JTAGIO())
-    val debug = new AsyncDMIIO
-    val jtagPOReset = Bool(INPUT)
-  }
-
-  val fsmReset = Wire(Bool())
-  val io_dmi = Wire (new DMIIO)
-
-  val jtag_dtm = Module(new DebugTransportModuleJTAG(
-    debugAddrBits  = p(DMKey).nDMIAddrSize,
-    c = p(JtagDTMKey))(p))
-  jtag_dtm.reset := jtag_dtm.io.fsmReset
-
-  jtag_dtm.io.jtag <> io.jtag
-  jtag_dtm.io.jtagPOReset := io.jtagPOReset
-  io_dmi <> jtag_dtm.io.dmi
-
-  // This causes this logic to be reset by 'JTAGDTMWithSync' reset
-  io.debug <> ToAsyncDMI(io_dmi)
- 
- 
 }
