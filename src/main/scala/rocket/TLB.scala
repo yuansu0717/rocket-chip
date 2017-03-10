@@ -74,8 +74,9 @@ class TLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreMod
   val xferSizes = TransferSizes(cacheBlockBytes, cacheBlockBytes)
   val allSizes = TransferSizes(1, cacheBlockBytes)
   val amoSizes = TransferSizes(1, xLen/8)
+
+  // Make sure managers support all or nothing needed by Rocket
   edge.manager.managers.foreach { m =>
-    require (m.minAlignment >= 4096, s"MemoryMap region ${m.name} must be page-aligned (is ${m.minAlignment})")
     require (!m.supportsGet        || m.supportsGet       .contains(allSizes),  s"MemoryMap region ${m.name} only supports ${m.supportsGet} Get, but must support ${allSizes}")
     require (!m.supportsPutFull    || m.supportsPutFull   .contains(allSizes),  s"MemoryMap region ${m.name} only supports ${m.supportsPutFull} PutFull, but must support ${allSizes}")
     require (!m.supportsAcquireB   || m.supportsAcquireB  .contains(xferSizes), s"MemoryMap region ${m.name} only supports ${m.supportsAcquireB} AcquireB, but must support ${xferSizes}")
@@ -84,6 +85,17 @@ class TLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreMod
     require (!m.supportsArithmetic || m.supportsArithmetic.contains(amoSizes),  s"MemoryMap region ${m.name} only supports ${m.supportsArithmetic} Arithmetic, but must support ${amoSizes}")
     require (m.supportsAcquireT || !m.supportsPutFull || !m.supportsAcquireB,   s"MemoryMap region ${m.name} supports PutFull and AcquireB but not AcquireT")
   }
+
+  // Make sure all permissions are the same across 4k boundaries
+  def check4K(member: TLManagerParameters => Boolean, prop: String) {
+    AddressSet.unify(edge.manager.managers.filter(member).flatMap(_.address)).foreach { a =>
+      require (a.alignment >= 4096, s"${a} is not uniformly $prop across 4k boundary")
+    }
+  }
+  check4K(_.executable, "Executable")
+  check4K(_.supportsPutFull, "Writable")
+  check4K(_.supportsGet, "Readable")
+  check4K(_.supportsAcquireB, "Cacheable")
 
   val lookup_tag = Cat(io.ptw.ptbr.asid, io.req.bits.vpn(vpnBits-1,0))
   val vm_enabled = Bool(usingVM) && io.ptw.status.vm(3) && priv_uses_vm && !io.req.bits.passthrough
