@@ -227,21 +227,13 @@ trait HasDebugModuleParameters {
 //
 // *****************************************
 
-trait DebugModuleROM extends Module with HasDebugModuleParameters with HasRegMap {
-  val romRegFields  =  DebugRomContents().map( x => RegField.r(8, (x.toInt & 0xFF).U))
-  regmap(
-    0x0     -> romRegFields
-  )
-}
-
-class TLDebugModuleROM()(implicit p: Parameters)
-    extends TLRegisterRouter(base = DsbRegAddrs.ROMBASE, // This is required for correct functionality. It's not a parameter.
-      "debug_rom", Nil,
-      size=0x800,
-      beatBytes=p(XLen)/8,
-      executable=true)(
-  new TLRegBundle((), _) )(
-  new TLRegModule((), _, _) with DebugModuleROM)
+class TLDebugModuleROM()(implicit p: Parameters) extends TLROM(base = DsbRegAddrs.ROMBASE, // This is required for correct functionality. It's not a parameter.
+  size = 0x800,
+  contentsDelayed = DebugRomContents(),
+  executable = true,
+  beatBytes = p(XLen)/8,
+  name = "debug_rom",
+  devcompat = Seq("sifive,debug-013"))
 
 // *****************************************
 // Debug Module 
