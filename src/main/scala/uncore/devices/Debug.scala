@@ -32,6 +32,7 @@ object DMIConsts{
   // to indicate 'busy'.
   def dmi_RESP_RESERVED    = "b11".U
 
+  def dmi_haltStatusAddr   = 0x40
 }
 
 object DsbBusConsts {
@@ -109,13 +110,13 @@ import DebugAbstractCommandType._
   *  actually supports.
   *  nComponents : The number of components to support debugging.
   *  nDMIAddrSize : Size of the Debug Bus Address
-  *  nAbstractDataWords: 
-  *  nProgamBufferWords: 
+  *  nAbstractDataWords: Number of 32-bit words for Abstract Commands
+  *  nProgamBufferWords: Number of 32-bit words for Program Buffer
   *  hasBusMaster: Whethr or not a bus master should be included
   *    The size of the accesses supported by the Bus Master. 
   *  nSerialPorts : Number of serial ports to instantiate
-  *  authType : The Authorization Type
-  *  Number of cycles to assert ndreset when pulsed. 
+  *  supportQuickAccess : Whether or not to support the quick access command.
+  *  supportHartArray : Whether or not to implement the hart array register.
   **/
 
 
@@ -132,7 +133,7 @@ case class DebugModuleConfig (
   hasAccess8   : Boolean,
   nSerialPorts : Int,
   supportQuickAccess : Boolean,
-  nNDResetCycles : Int
+  supportHartArray   : Boolean
 ) {
 
   if (hasBusMaster == false){
@@ -147,35 +148,24 @@ case class DebugModuleConfig (
 
   require ((nDMIAddrSize >= 7) && (nDMIAddrSize <= 32))
 
-  //TODO: Revisit these.
-  private val maxComponents = nDMIAddrSize match {
-    case 5 => (32*4)
-    case 6 => (32*32)
-    case 7 => (32*32)
-  }
+  private val maxComponents = 1024
   
-  //TODO: Revisit.
-  private val maxRam = nDMIAddrSize match {
-    case 5 => (4 * 16)
-    case 6 => (4 * 16)
-    case 7 => (4 * 64)
+  require ((nAbstractDataWords  > 0)  && (nAbstractDataWords  <= 16))
+  require ((nProgramBufferWords >= 0) && (nProgramBufferWords <= 16))
+
+  if (supportQuickAccess) {
+    // TODO: Check that quick access requirements are met.
   }
 
-  require (nNDResetCycles > 0)
-
-  // TODO: Check that quick access requirements are met.
 }
 
-class DefaultDebugModuleConfig (val xlen:Int)
+class DefaultDebugModuleConfig (val xlen:Int /*TODO , val configStringAddr: Int*/)
     extends DebugModuleConfig(
       nDMIAddrSize = 7,
-      //TODO: what should these values be.
-      nProgramBufferWords   =  8,
-      nAbstractDataWords = xlen match{
-        case 32  => 1 
-        case 64  => 2
-        case 128 => 4
-      },
+      //TODO use more words to support arbitrary sequences.
+      nProgramBufferWords =  15,
+      // TODO use less for small XLEN?
+      nAbstractDataWords  =  4,
       hasBusMaster = false,
       hasAccess128 = false, 
       hasAccess64 = false, 
@@ -183,8 +173,10 @@ class DefaultDebugModuleConfig (val xlen:Int)
       hasAccess16 = false, 
       hasAccess8 = false, 
       nSerialPorts = 0,
-      nNDResetCycles = 1,
-      supportQuickAccess = false
+      supportQuickAccess = false,
+      supportHartArray = false
+        // TODO configStringAddr = configStringAddr
+        // TODO: accept a mapping function from HARTID -> HARTSEL
     )
 
 case object DMKey extends Field[DebugModuleConfig]
@@ -322,7 +314,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 
     require (cfg.nSerialPorts == 0)
     require (cfg.hasBusMaster == false)
-    // ??? require((DMIConsts.dbRamWordBits % 8) == 0)
+    require (cfg.supportQuickAccess == false)
+    require (cfg.supportHartArray == false)
 
     //--------------------------------------------------------------
     // Register & Wire Declarations
@@ -424,10 +417,9 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
       haltedStatus(ii) := Cat(haltedBitRegs.slice(ii * 32, (ii + 1) * 32).reverse)
     }
 
-    //TODO: Make this more efficient with masks vs arithmetic.
-    //TODO: Use something other than a magic number here.
-    val dmiHaltedStatusIdx      = dmiReq.addr - 0x40.U
-    val dmiHaltedStatusIdxValid = dmiHaltedStatusIdx < nComponents.U
+    require ((DMIConsts.dmi_haltStatusAddr & 0xF) == 0)
+    val dmiHaltedStatusIdx      = dmiReq.addr & 0xF.U(4.W)
+    val dmiHaltedStatusIdxValid = ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMIConsts.dmi_haltStatusAddr.U) && (dmiHaltedStatusIdx < nComponents.U)
 
     val haltedStatusRdData = haltedStatus(dmiHaltedStatusIdx)
 
@@ -595,10 +587,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     // Abstract Data Access (Debug Bus ... System Bus can override)
     //--------------------------------------------------------------
 
-    //TODO: Make this more efficient with the final addresses to use masking
-    // instead of actual comparisons.
-    dmiAbstractDataIdx       := dmiReq.addr - DMI_DATA0
-    dmiAbstractDataIdxValid  := (dmiReq.addr >= DMI_DATA0) && (dmiReq.addr <= (DMI_DATA0 + cfg.nAbstractDataWords.U))
+    dmiAbstractDataIdx       := dmiReq.addr & 0xF.U(4.W)
+    dmiAbstractDataIdxValid  := ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMI_DATA0) && (dmiAbstractDataIdx < cfg.nAbstractDataWords.U)
 
     val dmiAbstractDataWrEn  = dmiAbstractDataIdxValid && dmiWrEn
     val dmiAbstractDataRdEn  = dmiAbstractDataIdxValid && dmiRdEn
@@ -620,11 +610,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     // Program Buffer Access (Debug Bus ... System Bus can override)
     //--------------------------------------------------------------
 
-    //TODO: Make this more efficient with the final addresses to use masking
-    // instead of actual comparisons.
-
-    dmiProgramBufferIdx       := dmiReq.addr - DMI_PROGBUF0
-    dmiProgramBufferIdxValid  := (dmiReq.addr >= DMI_PROGBUF0) && dmiReq.addr <= (DMI_PROGBUF0 + cfg.nProgramBufferWords.U)
+    dmiProgramBufferIdx       := dmiReq.addr & 0xF.U(4.W)
+    dmiProgramBufferIdxValid  := ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMI_PROGBUF0) && (dmiProgramBufferIdx < cfg.nProgramBufferWords.U)
 
     val dmiProgramBufferFields = List.tabulate(cfg.nProgramBufferWords) { ii =>
       val slice = programBufferMem.slice(ii * 4, (ii+1)*4)
@@ -795,16 +782,16 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val abstractGeneratedS = Wire(new GeneratedS())
 
     abstractGeneratedI.opcode := ((new GeneratedI()).fromBits(rocket.Instructions.LW.value.U)).opcode
-    abstractGeneratedI.rd     := (accessRegisterCommandReg.regno & 0x1F.U) // TODO: refuse to do this for CSRs/FPRs
+    abstractGeneratedI.rd     := (accessRegisterCommandReg.regno & 0x1F.U)
     abstractGeneratedI.funct3 := accessRegisterCommandReg.size
-    abstractGeneratedI.rs1    := 0.U //addr
+    abstractGeneratedI.rs1    := 0.U
     abstractGeneratedI.imm    := DATA.U
 
     abstractGeneratedS.opcode := ((new GeneratedI()).fromBits(rocket.Instructions.SW.value.U)).opcode
     abstractGeneratedS.immlo  := (DATA & 0x1F).U
     abstractGeneratedS.funct3 := accessRegisterCommandReg.size
-    abstractGeneratedS.rs1    := 0.U // addr
-    abstractGeneratedS.rs2    := (accessRegisterCommandReg.regno & 0x1F.U) // TODO: refuse to do this for CSRs/FPRs
+    abstractGeneratedS.rs1    := 0.U
+    abstractGeneratedS.rs2    := (accessRegisterCommandReg.regno & 0x1F.U)
     abstractGeneratedS.immhi  := (DATA >> 5).U
 
     when (goAbstract) {
@@ -883,11 +870,6 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     // DMI Register Control and Status
     abstractCommandBusy := (ctrlStateReg != CtrlState(Waiting))
 
-    //TODO: What are we allowed to write in the event of an error?
-    // The spec says not command will be 'started', but not that it won't
-    // be written.
-    // This implementation allows it to be written but not started, but
-    // not sure that is really the best design.
     ABSTRACTCSWrEnLegal := (ctrlStateReg === CtrlState(Waiting))
     COMMANDWrEnLegal    := (ctrlStateReg === CtrlState(Waiting))
 
@@ -896,7 +878,7 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
                  (dmiAbstractDataAccess && abstractCommandBusy)    ||
                  (dmiProgramBufferAccess && abstractCommandBusy)
 
-    // TODO: Other Commands
+    // TODO: Maybe Quick Access
     val commandWrIsAccessRegister = (COMMANDWrData.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
     val commandRegIsAccessRegister = (COMMANDReg.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
 
