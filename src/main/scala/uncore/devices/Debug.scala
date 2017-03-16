@@ -620,6 +620,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 
     dmiProgramBufferRdData := dmiProgramBufferFields(dmiProgramBufferIdx)
 
+    val dmiProgramBufferAccess = (dmiWrEn | dmiRdEn) && dmiProgramBufferIdxValid
+
     when (dmiWrEn & dmiProgramBufferIdxValid) {
       for (ii <- 0 until 4) {
         programBufferMem((dmiProgramBufferIdx << 2) + ii.U) := dmiReq.data((8*(ii+1)-1), (8*ii))
@@ -876,8 +878,10 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     ABSTRACTCSWrEnLegal := (ctrlStateReg === CtrlState(Waiting))
     COMMANDWrEnLegal    := (ctrlStateReg === CtrlState(Waiting))
 
-    errorBusy := (ABSTRACTCSWrEnMaybe && ~ABSTRACTCSWrEnLegal) ||
-    (COMMANDWrEnMaybe && ~COMMANDWrEnLegal)
+    errorBusy := (ABSTRACTCSWrEnMaybe   && ~ABSTRACTCSWrEnLegal)   ||
+                 (COMMANDWrEnMaybe      && ~COMMANDWrEnLegal)      ||
+                 (dmiAbstractDataAccess && abstractCommandBusy)    ||
+                 (dmiProgramBufferAccess && abstractCommandBusy)
 
     // TODO: Other Commands
     val commandWrIsAccessRegister = (COMMANDWrData.cmdtype === DebugAbstractCommandType.AccessRegister.id.U)
@@ -892,8 +896,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     }
     }
 
-    val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister
-    val regAccessRegisterCommand = autoexec    && commandRegIsAccessRegister
+    val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister  && (ABSTRACTCSReg.cmderr === 0.U)
+    val regAccessRegisterCommand = autoexec    && commandRegIsAccessRegister && (ABSTRACTCSReg.cmderr === 0.U)
     //------------------------
     // Variable ROM STATE MACHINE
     // -----------------------
