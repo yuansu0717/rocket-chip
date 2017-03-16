@@ -327,9 +327,15 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     //--------------------------------------------------------------
     // Register & Wire Declarations
     //--------------------------------------------------------------
-    print ("nComponents is " + nComponents)
-    val debugIntRegs = Reg(init=Vec.fill(nComponents){Bool(false)})
-    val haltedBitRegs  = Reg(init=Vec.fill(nComponents){Bool(false)})
+    val debugIntNxt = Wire(init = Vec.fill(nComponents){false.B})
+    val debugIntRegs = Wire(init = Vec(AsyncResetReg(updateData = debugIntNxt.asUInt,
+      resetData = 0,
+      enable = true.B,
+      name = "debugInterrupts").toBools))
+
+    debugIntNxt := debugIntRegs
+
+    val haltedBitRegs  = Reg(init=Vec.fill(nComponents){false.B})
 
     val dmiReq    = io.dmi.req.bits
     val dmiWrEn   = Wire(Bool())
@@ -352,10 +358,16 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 
     //----DMCONTROL
 
-    val DMCONTROLReset = Wire(init = (new DMCONTROLFields()).fromBits(0.U))
+    val DMCONTROLReset = Wire(init = (new DMCONTROLFields().fromBits(0.U)))
     DMCONTROLReset.authenticated := true.B // Not implemented
     DMCONTROLReset.version       := 1.U
-    val DMCONTROLReg = RegInit(DMCONTROLReset)
+    val DMCONTROLNxt = Wire(init = new DMCONTROLFields().fromBits(0.U))
+
+    val DMCONTROLReg = Wire(init = new DMCONTROLFields().fromBits(AsyncResetReg(updateData = DMCONTROLNxt.asUInt,
+      resetData = BigInt(0) | BigInt(1 << 8) /*authenticated*/ | BigInt(1 << 0), /*version*/ // TODO automate DMCONTROLReset
+      enable = true.B,
+      name = "DMCONTROL"
+    )))
 
     val unavailVec = Wire(Vec(nComponents, Bool()))
     unavailVec := io.debugUnavail
@@ -376,24 +388,25 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 
     val dmactive = DMCONTROLReg.dmactive
 
+    DMCONTROLNxt := DMCONTROLReg
+
     when (~dmactive) {
-      DMCONTROLReg := DMCONTROLReset
+      DMCONTROLNxt := DMCONTROLReset
     } .otherwise {
       when (DMCONTROLWrEn) {
-        DMCONTROLReg.reset     := DMCONTROLWrData.reset
-        DMCONTROLReg.haltreq   := DMCONTROLWrData.haltreq
-        DMCONTROLReg.resumereq := DMCONTROLWrData.resumereq
-        DMCONTROLReg.hartsel   := DMCONTROLWrData.hartsel
+        DMCONTROLNxt.reset     := DMCONTROLWrData.reset
+        DMCONTROLNxt.haltreq   := DMCONTROLWrData.haltreq
+        DMCONTROLNxt.resumereq := DMCONTROLWrData.resumereq
+        DMCONTROLNxt.hartsel   := DMCONTROLWrData.hartsel
       }
     }
 
     // Put this last to override its own effects.
     when (DMCONTROLWrEn) {
-      DMCONTROLReg.dmactive := DMCONTROLWrData.dmactive
+      DMCONTROLNxt.dmactive := DMCONTROLWrData.dmactive
     }
 
-    //TODO -- need to make sure this is not asserted at reset! Can't have combo loop on the reset line.
-    // io.ndreset   := DMCONTROLReg.reset
+    io.ndreset   := DMCONTROLReg.reset
 
     //----HARTINFO
 
@@ -545,11 +558,11 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 
     for (component <- 0 until nComponents) {
       when (~dmactive) {
-        debugIntRegs(component) := false.B
+        debugIntNxt(component) := false.B
       }. otherwise {
         when (DMCONTROLWrEn) {
           when (DMCONTROLWrData.hartsel === component.U) {
-            debugIntRegs(component) := (debugIntRegs(component) | DMCONTROLWrData.haltreq) &
+            debugIntNxt(component) := (debugIntRegs(component) | DMCONTROLWrData.haltreq) &
             ~(DMCONTROLWrData.resumereq)
           }
         }
