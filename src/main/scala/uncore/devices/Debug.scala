@@ -262,13 +262,48 @@ class DebugModuleBundle (nComponents: Int) (implicit val p: Parameters) extends 
   *      It is also responsible for some reset lines.
   */
 
-class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugModuleParameters
+class TLDebugModule()(implicit p:Parameters) extends LazyModule {
+
+  val dm = LazyModule(new TLDebugModuleInner()(p))
+  val intnode = IntOutputNode()
+  val dmi2tl = LazyModule(new DMIToTL())
+  val node = TLInputNode()
+
+  dm.dmiNode := dmi2tl.node
+  dm.hartNode := node
+  intnode := dm.intnode
+
+  lazy val module = new LazyModuleImp(this) {
+    val nComponents = intnode.bundleOut.size
+
+    val io = new DebugModuleBundle(nComponents) {
+      val in = node.bundleIn
+      val debugInterrupts = intnode.bundleOut
+    }
+    dmi2tl.module.io.dmi <> io.dmi
+    io.debugInterrupts := dm.module.io.debugInterrupts
+    dm.module.io.debugUnavail := io.debugUnavail
+    io.ndreset := dm.module.io.ndreset
+    io.debugActive := dm.module.io.debugActive
+  }
+}
+
+class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDebugModuleParameters
 {
   val device = new SimpleDevice("debug-controller", Seq("riscv,debug-013")){
     override val alwaysExtended = true
   }
 
-  val node = TLRegisterNode(
+  val dmiNode = TLRegisterNode(
+    address = AddressSet(0, 0x1FF),
+    device = device,
+    deviceKey = "reg",
+    beatBytes = 4,
+    executable = false
+  )
+
+ 
+  val hartNode = TLRegisterNode(
     address=AddressSet(0, 0x7FF), // This is required for correct functionality, it's not configurable.
     device=device,
     deviceKey="reg",
@@ -287,7 +322,8 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val nComponents = intnode.bundleOut.size
 
     val io = new DebugModuleBundle(nComponents) {
-      val in = node.bundleIn
+      val hart_in = hartNode.bundleIn
+      val dmi_in = dmiNode.bundleIn
       val debugInterrupts = intnode.bundleOut
     }
 
@@ -321,10 +357,6 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     debugIntNxt := debugIntRegs
 
     val haltedBitRegs  = Reg(init=Vec.fill(nComponents){false.B})
-
-    val dmiReq    = io.dmi.req.bits
-    val dmiWrEn   = Wire(Bool())
-    val dmiRdEn   = Wire(Bool())
 
     // --- regmapper outputs
 
@@ -368,8 +400,11 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
       DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Running.id.U
     }
 
-    val DMCONTROLWrData = (new DMCONTROLFields()).fromBits(dmiReq.data)
-    val DMCONTROLWrEn   = dmiWrEn & (dmiReq.addr === DMI_DMCONTROL)
+    val DMCONTROLWrDataVal = Wire(init = 0.U(32.W))
+    val DMCONTROLWrData = (new DMCONTROLFields()).fromBits(DMCONTROLWrDataVal)
+    val DMCONTROLWrEn   = Wire(init = false.B)
+    val DMCONTROLRdEn   = Wire(init = false.B)
+
 
     val dmactive = DMCONTROLReg.dmactive
 
@@ -409,12 +444,6 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
       haltedStatus(ii) := Cat(haltedBitRegs.slice(ii * 32, (ii + 1) * 32).reverse)
     }
 
-    require ((DMIConsts.dmi_haltStatusAddr & 0xF) == 0)
-    val dmiHaltedStatusIdx      = dmiReq.addr & 0xF.U(4.W)
-    val dmiHaltedStatusIdxValid = ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMIConsts.dmi_haltStatusAddr.U) && (dmiHaltedStatusIdx < nComponents.U)
-
-    val haltedStatusRdData = haltedStatus(dmiHaltedStatusIdx)
-
     val haltedSummary = Cat(haltedStatus.map(_.orR).reverse)
 
     val HALTSUMRdData = (new HALTSUMFields()).fromBits(haltedSummary)
@@ -424,14 +453,17 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val ABSTRACTCSReset = Wire(init = (new ABSTRACTCSFields()).fromBits(0.U))
     ABSTRACTCSReset.datacount := cfg.nAbstractDataWords.U
 
-    val ABSTRACTCSReg = RegInit(ABSTRACTCSReset)
-    val ABSTRACTCSWrData = (new ABSTRACTCSFields()).fromBits(dmiReq.data)
-    val ABSTRACTCSRdData = Wire(init = ABSTRACTCSReg)
+    val ABSTRACTCSReg       = RegInit(ABSTRACTCSReset)
+    val ABSTRACTCSWrDataVal = Wire(init = 0.U(32.W))
+    val ABSTRACTCSWrData    = (new ABSTRACTCSFields()).fromBits(ABSTRACTCSWrDataVal)
+    val ABSTRACTCSRdData    = Wire(init = ABSTRACTCSReg)
 
-    val ABSTRACTCSWrEnMaybe = dmiWrEn & (dmiReq.addr === DMI_ABSTRACTCS)
+    val ABSTRACTCSRdEn = Wire(init = false.B)
+    val ABSTRACTCSWrEnMaybe = Wire(init = false.B)
 
     val ABSTRACTCSWrEnLegal = Wire(init = false.B)
     val ABSTRACTCSWrEn      = ABSTRACTCSWrEnMaybe && ABSTRACTCSWrEnLegal
+
 
     val errorBusy        = Wire(init = false.B)
     val errorException   = Wire(init = false.B)
@@ -479,9 +511,11 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val COMMANDReset = (new COMMANDFields()).fromBits(0.U)
     val COMMANDReg = RegInit(COMMANDReset)
 
-    val COMMANDWrData       = (new COMMANDFields()).fromBits(dmiReq.data)
-    val COMMANDWrEnMaybe    = dmiWrEn & (dmiReq.addr === DMI_COMMAND)
+    val COMMANDWrDataVal    = Wire(init = 0.U(32.W))
+    val COMMANDWrData       = (new COMMANDFields()).fromBits(COMMANDWrDataVal)
+    val COMMANDWrEnMaybe    = Wire(init = false.B)
     val COMMANDWrEnLegal    = Wire(init = false.B)
+    val COMMANDRdEn  = Wire(init = false.B)
 
     val COMMANDWrEn = COMMANDWrEnMaybe && COMMANDWrEnLegal
     val COMMANDRdData = COMMANDReg
@@ -504,30 +538,12 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     // byte-addressible instructions to store to them.
     val abstractDataMem       = RegInit(Vec.fill(cfg.nAbstractDataWords*4){0.U(8.W)})
 
-    val dmiAbstractDataIdx        = Wire(UInt(abstractDataAddrWidth.W))
-    val dmiAbstractDataIdxValid   = Wire(Bool())
-    val dmiAbstractDataRdData      = Wire (UInt(32.W))
-    val dmiAbstractDataWrData      = Wire(UInt(32.W))
-
-    val dmiAbstractDataOffset = log2Up(abstractDataWidth/8)
-
     // --- Program Buffer
 
     val PROGBUFCSRdData = Wire(init = (new PROGBUFCSFields).fromBits(0.U))
     PROGBUFCSRdData.progsize := cfg.nProgramBufferWords.U
 
-    val programBufferDataWidth  = 32
-    val programBufferAddrWidth = log2Up(cfg.nProgramBufferWords)
-
     val programBufferMem    = RegInit(Vec.fill(cfg.nProgramBufferWords*4){0.U(8.W)})
-
-    val dmiProgramBufferIdx   = Wire(UInt(programBufferAddrWidth.W))
-    val dmiProgramBufferIdxValid   = Wire(Bool())
-    val dmiProgramBufferRdData = Wire (UInt(32.W))
-    val dmiProgramBufferWrData = Wire(UInt(32.W))
-
-    val dmiProgramBufferOffset = log2Up(programBufferDataWidth/8)
-
 
     //--------------------------------------------------------------
     // Interrupt Registers
@@ -574,111 +590,46 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
       }
     }
 
+    //--------------------------------------------------------------
+    // Abstract Data Access (DMI ... System Bus can override)
+    //--------------------------------------------------------------
+
+    val dmiAbstractDataRdEn = Wire(init = Vec.fill(cfg.nAbstractDataWords*4){false.B})
+    val dmiAbstractDataWrEn = Wire(init = Vec.fill(cfg.nAbstractDataWords*4){false.B})
 
     //--------------------------------------------------------------
-    // Abstract Data Access (Debug Bus ... System Bus can override)
+    // Program Buffer Access (DMI ... System Bus can override)
     //--------------------------------------------------------------
+    val dmiProgramBufferRdEn = Wire(init = Vec.fill(cfg.nProgramBufferWords*4){false.B})
+    val dmiProgramBufferWrEn = Wire(init = Vec.fill(cfg.nProgramBufferWords*4){false.B})
 
-    dmiAbstractDataIdx       := dmiReq.addr & 0xF.U(4.W)
-    dmiAbstractDataIdxValid  := ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMI_DATA0) && (dmiAbstractDataIdx < cfg.nAbstractDataWords.U)
-
-    val dmiAbstractDataWrEn  = dmiAbstractDataIdxValid && dmiWrEn
-    val dmiAbstractDataRdEn  = dmiAbstractDataIdxValid && dmiRdEn
-
-    val dmiAbstractDataFields = List.tabulate(cfg.nAbstractDataWords) { ii =>
-      val slice = abstractDataMem.slice(ii * 4, (ii+1)*4)
-      slice.reduce[UInt]{ case (x: UInt, y: UInt) => Cat(y, x) }
+    // Local reg mapper function : Notify when written, but give the value as well.
+    def wValue (n: Int, value: UInt, set: Bool) : RegField = {
+      RegField(n, value, RegWriteFn((valid, data) => {set := valid ; value := data; Bool(true)}))
     }
 
-    when (dmiWrEn & dmiAbstractDataIdxValid) {
-      for (ii <- 0 until 4) {
-        abstractDataMem((dmiAbstractDataIdx << 2) + ii.U) := dmiReq.data((8*(ii+1)-1), (8*ii))
-      }
+    // Local reg mapper function : Notify when accessed either as read or write.
+    def rwNotify (n: Int, rVal: UInt, wVal: UInt, rNotify: Bool, wNotify: Bool) : RegField = {
+      RegField(n,
+        RegReadFn ((ready)       => {rNotify := ready ; (Bool(true), rVal)}),
+        RegWriteFn((valid, data) => {wNotify := valid ; wVal := data; Bool(true)}))
     }
 
-    dmiAbstractDataRdData := dmiAbstractDataFields(dmiAbstractDataIdx)
-
-    //--------------------------------------------------------------
-    // Program Buffer Access (Debug Bus ... System Bus can override)
-    //--------------------------------------------------------------
-
-    dmiProgramBufferIdx       := dmiReq.addr & 0xF.U(4.W)
-    dmiProgramBufferIdxValid  := ((dmiReq.addr & ~(0xF.U(cfg.nDMIAddrSize.W))) === DMI_PROGBUF0) && (dmiProgramBufferIdx < cfg.nProgramBufferWords.U)
-
-    val dmiProgramBufferFields = List.tabulate(cfg.nProgramBufferWords) { ii =>
-      val slice = programBufferMem.slice(ii * 4, (ii+1)*4)
-      slice.reduce[UInt]{ case (x: UInt, y: UInt) => Cat(y, x)}
-    }
-
-    dmiProgramBufferRdData := dmiProgramBufferFields(dmiProgramBufferIdx)
-
-    val dmiProgramBufferAccess = (dmiWrEn | dmiRdEn) && dmiProgramBufferIdxValid
-
-    when (dmiWrEn & dmiProgramBufferIdxValid) {
-      for (ii <- 0 until 4) {
-        programBufferMem((dmiProgramBufferIdx << 2) + ii.U) := dmiReq.data((8*(ii+1)-1), (8*ii))
-      }
-    }
-
-    //--------------------------------------------------------------
-    // DMI Access
-    //--------------------------------------------------------------
-
-    val dmiBusyReg = RegInit(false.B)
-
-    // -----------------------------------------
-    // DMI Access Read Mux
-    val dmiRdData = Wire(UInt(DMIConsts.dmiDataSize.W))
-
-    when     (dmiReq.addr === DMI_DMCONTROL)     {dmiRdData := DMCONTROLRdData.asUInt()}
-      .elsewhen (dmiReq.addr === DMI_HARTINFO)   {dmiRdData := HARTINFORdData.asUInt()}
-      .elsewhen (dmiReq.addr === DMI_HALTSUM)    {dmiRdData := HALTSUMRdData.asUInt()}
-      .elsewhen (dmiReq.addr === DMI_ABSTRACTCS) {dmiRdData := ABSTRACTCSRdData.asUInt()}
-      .elsewhen (dmiReq.addr === DMI_PROGBUFCS)  {dmiRdData := PROGBUFCSRdData.asUInt()}
-      .elsewhen (dmiReq.addr === DMI_COMMAND)    {dmiRdData := COMMANDRdData.asUInt()}
-      .elsewhen (dmiAbstractDataIdxValid)        {dmiRdData := dmiAbstractDataRdData}
-      .elsewhen (dmiProgramBufferIdxValid)       {dmiRdData := dmiProgramBufferRdData}
-      .elsewhen (dmiHaltedStatusIdxValid)        {dmiRdData := haltedStatusRdData}
-      .otherwise {dmiRdData := 0.U}
-
-    // There is no way to return failure without SB or Serial, which are not
-    // implemented yet.
-
-
-    // -----------------------------------------
-    // DMI Access State Machine Decode (Combo)
-
-    val dmiResult  = Wire(new DMIResp())
-
-    dmiResult.resp := dmi_RESP_SUCCESS
-    dmiResult.data := dmiRdData
-
-    val dmiRespReg = Reg(new DMIResp())
-
-    io.dmi.req.ready := (!dmiBusyReg) || (dmiBusyReg && io.dmi.resp.fire())
-
-    io.dmi.resp.valid := dmiBusyReg
-    io.dmi.resp.bits  := dmiRespReg
-
-    dmiWrEn := (dmiReq.op === dmi_OP_WRITE) && io.dmi.req.fire()
-    dmiRdEn := (dmiReq.op === dmi_OP_READ)  && io.dmi.req.fire()
-
-    // -----------------------------------------
-    // DMI Access State Machine Update (Seq)
-
-    when (!dmiBusyReg) {
-      when (io.dmi.req.fire()){
-        dmiBusyReg := true.B
-        dmiRespReg := dmiResult
-      }
-    } .otherwise {
-      when (io.dmi.req.fire()){
-        dmiBusyReg := true.B
-        dmiRespReg := dmiResult
-      }.elsewhen (io.dmi.resp.fire()){
-        dmiBusyReg := false.B
-      }
-    }
+    dmiNode.regmap(
+      (DMI_DMCONTROL   << 2) -> Seq(rwNotify(32, DMCONTROLRdData.asUInt(), DMCONTROLWrDataVal, DMCONTROLRdEn, DMCONTROLWrEn)),
+      (DMI_HARTINFO    << 2) -> Seq(RegField.r(32, HARTINFORdData.asUInt())),
+      (DMI_HALTSUM     << 2) -> Seq(RegField.r(32, HALTSUMRdData.asUInt())),
+      (DMI_ABSTRACTCS  << 2) -> Seq(rwNotify(32, ABSTRACTCSRdData.asUInt(), ABSTRACTCSWrDataVal, ABSTRACTCSRdEn, ABSTRACTCSWrEnMaybe)),
+      (DMI_PROGBUFCS   << 2) -> Seq(RegField.r(32, PROGBUFCSRdData.asUInt())),
+      (DMI_COMMAND     << 2) -> Seq(rwNotify(32, COMMANDRdData.asUInt(), COMMANDWrDataVal, COMMANDRdEn, COMMANDWrEnMaybe)),
+      (DMI_DATA0       << 2) -> abstractDataMem.zipWithIndex.map{case (x, i) => rwNotify(8, x, x,
+        dmiAbstractDataRdEn(i),
+        dmiAbstractDataWrEn(i))},
+      (DMI_PROGBUF0    << 2) -> programBufferMem.zipWithIndex.map{case (x, i) => rwNotify(8, x, x,
+        dmiProgramBufferRdEn(i),
+        dmiProgramBufferWrEn(i))},
+      (DMIConsts.dmi_haltStatusAddr << 2) -> haltedStatus.map(x => RegField.r(32, x))
+    )
 
     //--------------------------------------------------------------
     // "Variable" ROM Generation
@@ -802,12 +753,7 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     // System Bus Access
     //--------------------------------------------------------------
 
-    // Local reg mapper function : Notify when written, but give the value as well.
-    def wValue (n: Int, value: UInt, set: Bool) : RegField = {
-      RegField(n, value, RegWriteFn((valid, data) => {set := valid ; value := data; Bool(true)}))
-    }
-
-    node.regmap(
+    hartNode.regmap(
       // This memory is writable.
       HALTED      -> Seq(wValue(sbIdWidth, hartHaltedId, hartHaltedWrEn)),
       GOING       -> Seq(wValue(sbIdWidth, hartGoingId,  hartGoingWrEn)),
@@ -821,7 +767,7 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
       GO          -> goBytes.map(x => RegField.r(8, x)),
       WHERETO     -> Seq(RegField.r(32, whereToReg)),
       ABSTRACT    -> Seq(RegField.r(32, abstractGeneratedReg), RegField.r(32, ebreakInstruction))
-    )
+     )
 
     //--------------------------------------------------------------
     // Abstract Command State Machine
@@ -844,8 +790,9 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val ctrlStateNxt = Wire(init = ctrlStateReg)
     val autoexecVec  = Wire(init = Vec.fill(8){false.B})
 
-    val dmiAbstractDataAccess = dmiAbstractDataWrEn | dmiAbstractDataRdEn
-
+    val dmiAbstractDataAccess  = dmiAbstractDataWrEn.reduce(_ || _) | dmiAbstractDataRdEn.reduce(_ || _)
+    val dmiProgramBufferAccess = dmiProgramBufferWrEn.reduce(_ || _) | dmiProgramBufferRdEn.reduce(_ || _)
+/*
     if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec0
     if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec1
     if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec2
@@ -854,7 +801,7 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec5
     if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec6
     if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec7
-
+ */
     val autoexec = autoexecVec.reduce(_ || _)
 
     //------------------------
@@ -877,10 +824,10 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
     val commandRegIsUnsupported = Wire(init = true.B)
     val commandRegBadHaltResume = Wire(init = false.B)
     when (commandRegIsAccessRegister) {
-    when ((accessRegisterCommandReg.regno >= 0x1000.U && accessRegisterCommandReg.regno <= 0x101F.U)){
-      commandRegIsUnsupported := false.B
-      commandRegBadHaltResume := ~hartHalted
-    }
+      when ((accessRegisterCommandReg.regno >= 0x1000.U && accessRegisterCommandReg.regno <= 0x101F.U)){
+        commandRegIsUnsupported := false.B
+        commandRegBadHaltResume := ~hartHalted
+      }
     }
 
     val wrAccessRegisterCommand  = COMMANDWrEn && commandWrIsAccessRegister  && (ABSTRACTCSReg.cmderr === 0.U)
@@ -986,7 +933,7 @@ class TLDebugModule()(implicit p: Parameters) extends LazyModule with HasDebugMo
 }
 
 
-/** Create a version of the TLDebugModule which includes a synchronization interface
+  /** Create a version of the TLDebugModule which includes a synchronization interface
   *  on the Tile Link side. This is a "half a synchronizer" design, the other
   *  half of the synchronizer lives in the Coreplex (probably).
   */
@@ -1026,4 +973,44 @@ class ClockedDMIIO(implicit val p: Parameters) extends ParameterizedBundle()(p){
   val dmi      = new DMIIO()(p)
   val dmiClock = Clock(OUTPUT)
   val dmiReset = Bool(OUTPUT)
+}
+
+/** Convert DMI to TL. Avoids using special DMI synchronizers and register accesses
+  *  
+  */
+
+class DMIToTL(implicit p: Parameters) extends LazyModule {
+
+  val node = TLClientNode(TLClientParameters())
+
+  lazy val module = new LazyModuleImp(this) {
+    val io = new Bundle {
+      val dmi = new DMIIO()(p).flip()
+      val out = node.bundleOut
+    }
+
+    val tl = io.out(0)
+    val edge = node.edgesOut(0)
+
+    val src  = Wire(init = 0.U)
+    val addr = Wire(init = (io.dmi.req.bits.addr << 2))
+    val size = (log2Ceil(DMIConsts.dmiDataSize / 8)).U
+
+    val (_,  gbits) = edge.Get(src, addr, size)
+    val (_, pfbits) = edge.Put(src, addr, size, io.dmi.req.bits.data)
+
+    tl.a.bits        := Mux((io.dmi.req.bits.op === DMIConsts.dmi_OP_WRITE),  pfbits ,  gbits)
+    tl.a.valid       := io.dmi.req.valid
+    io.dmi.req.ready := tl.a.ready
+
+    io.dmi.resp.valid      := tl.d.valid
+    tl.d.ready             := io.dmi.resp.ready
+    io.dmi.resp.bits.resp  := Mux(tl.d.bits.error, DMIConsts.dmi_RESP_FAILURE, DMIConsts.dmi_RESP_SUCCESS)
+    io.dmi.resp.bits.data  := tl.d.bits.data
+
+    // Tie off unused channels
+    tl.b.ready := false.B
+    tl.c.valid := false.B
+    tl.e.valid := false.B
+  }
 }

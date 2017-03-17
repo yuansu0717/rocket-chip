@@ -15,9 +15,9 @@ object DMI_RegAddrs {
         what that current state is.
         \end{commentary}
   */
-  def DMI_DMCONTROL = UInt(0x00)
+  def DMI_DMCONTROL = 0x00
 
-  def DMI_HARTINFO = UInt(0x01)
+  def DMI_HARTINFO = 0x01
 
   /* This register contains a summary of which harts are halted.
 
@@ -26,9 +26,9 @@ object DMI_RegAddrs {
         register, and then read from the halt region (0x40--0x5f) to determine
         which hart is the one that is halted.
   */
-  def DMI_HALTSUM = UInt(0x02)
+  def DMI_HALTSUM = 0x02
 
-  def DMI_SBCS = UInt(0x03)
+  def DMI_SBCS = 0x03
 
   /* If \Fsbasize is 0, then this register is not present.
 
@@ -43,13 +43,13 @@ object DMI_RegAddrs {
 
         If \Fsbsingleread is set, the bit is cleared.
   */
-  def DMI_SBADDRESS0 = UInt(0x04)
+  def DMI_SBADDRESS0 = 0x04
 
-  def DMI_SBADDRESS1 = UInt(0x05)
+  def DMI_SBADDRESS1 = 0x05
 
   /* If \Fsbasize is less than 65, then this register is not present.
   */
-  def DMI_SBADDRESS2 = UInt(0x06)
+  def DMI_SBADDRESS2 = 0x06
 
   /* If all of the {\tt sbaccess} bits in \Rsbcs are 0, then this register
         is not present.
@@ -80,20 +80,20 @@ object DMI_RegAddrs {
 
         4. If \Fsbautoread is set, start another system bus read.
   */
-  def DMI_SBDATA0 = UInt(0x07)
+  def DMI_SBDATA0 = 0x07
 
   /* If \Fsbaccesssixtyfour and \Fsbaccessonetwentyeight are 0, then this
         register is not present.
   */
-  def DMI_SBDATA1 = UInt(0x08)
+  def DMI_SBDATA1 = 0x08
 
   /* This register only exists if \Fsbaccessonetwentyeight is 1.
   */
-  def DMI_SBDATA2 = UInt(0x09)
+  def DMI_SBDATA2 = 0x09
 
   /* This register only exists if \Fsbaccessonetwentyeight is 1.
   */
-  def DMI_SBDATA3 = UInt(0x0a)
+  def DMI_SBDATA3 = 0x0a
 
   /* This register serves as a 32-bit serial port to the authentication
         module.
@@ -102,9 +102,9 @@ object DMI_RegAddrs {
         authentication module by reading or writing this register. There is no
         separate mechanism to signal overflow/underflow.
   */
-  def DMI_AUTHDATA = UInt(0x0b)
+  def DMI_AUTHDATA = 0x0b
 
-  def DMI_ABSTRACTCS = UInt(0x0e)
+  def DMI_ABSTRACTCS = 0x0e
 
   /* Writes to this register cause the corresponding abstract command to be
         executed.
@@ -122,7 +122,7 @@ object DMI_RegAddrs {
             previous one succeeding) passed.
         \end{commentary}
   */
-  def DMI_COMMAND = UInt(0x0f)
+  def DMI_COMMAND = 0x0f
 
   /* Basic read/write registers that may be read or changed by abstract
         commands.
@@ -135,29 +135,29 @@ object DMI_RegAddrs {
         offered by the command in question. If the command fails, no
         assumptions can be made about the contents of these registers.
   */
-  def DMI_DATA0 = UInt(0x10)
+  def DMI_DATA0 = 0x10
 
-  def DMI_DATA1 = UInt(0x11)
+  def DMI_DATA1 = 0x11
 
-  def DMI_DATA2 = UInt(0x12)
+  def DMI_DATA2 = 0x12
 
-  def DMI_DATA3 = UInt(0x13)
+  def DMI_DATA3 = 0x13
 
-  def DMI_DATA4 = UInt(0x14)
+  def DMI_DATA4 = 0x14
 
-  def DMI_DATA5 = UInt(0x15)
+  def DMI_DATA5 = 0x15
 
-  def DMI_DATA6 = UInt(0x16)
+  def DMI_DATA6 = 0x16
 
-  def DMI_DATA7 = UInt(0x17)
+  def DMI_DATA7 = 0x17
 
-  def DMI_DATA8 = UInt(0x18)
+  def DMI_DATA8 = 0x18
 
-  def DMI_DATA9 = UInt(0x19)
+  def DMI_DATA9 = 0x19
 
-  def DMI_DATA10 = UInt(0x1a)
+  def DMI_DATA10 = 0x1a
 
-  def DMI_DATA11 = UInt(0x1b)
+  def DMI_DATA11 = 0x1b
 
   /* If \Fserialcount is 0, this register is not present.
 
@@ -172,13 +172,13 @@ object DMI_RegAddrs {
         queue. If that queue is already full or its overflow bit is set, then
         the write fails and the overflow bit becomes set.
   */
-  def DMI_SERDATA = UInt(0x1c)
+  def DMI_SERDATA = 0x1c
 
   /* If \Fserialcount is 0, this register is not present.
   */
-  def DMI_SERCS = UInt(0x1d)
+  def DMI_SERCS = 0x1d
 
-  def DMI_PROGBUFCS = UInt(0x1f)
+  def DMI_PROGBUFCS = 0x1f
 
   /* The {\tt progbuf} registers provide read/write access to the optional
         program buffer.
@@ -186,29 +186,29 @@ object DMI_RegAddrs {
         If \Fautoexeczero is set, then after this register is accessed the
         command in \Rcommand is executed again.
   */
-  def DMI_PROGBUF0 = UInt(0x20)
+  def DMI_PROGBUF0 = 0x20
 
-  def DMI_PROGBUF1 = UInt(0x21)
+  def DMI_PROGBUF1 = 0x21
 
-  def DMI_PROGBUF2 = UInt(0x22)
+  def DMI_PROGBUF2 = 0x22
 
-  def DMI_PROGBUF3 = UInt(0x23)
+  def DMI_PROGBUF3 = 0x23
 
-  def DMI_PROGBUF4 = UInt(0x24)
+  def DMI_PROGBUF4 = 0x24
 
-  def DMI_PROGBUF5 = UInt(0x25)
+  def DMI_PROGBUF5 = 0x25
 
-  def DMI_PROGBUF6 = UInt(0x26)
+  def DMI_PROGBUF6 = 0x26
 
-  def DMI_PROGBUF7 = UInt(0x27)
+  def DMI_PROGBUF7 = 0x27
 
-  def DMI_PROGBUF8 = UInt(0x28)
+  def DMI_PROGBUF8 = 0x28
 
-  def DMI_PROGBUF9 = UInt(0x29)
+  def DMI_PROGBUF9 = 0x29
 
-  def DMI_PROGBUF10 = UInt(0x2a)
+  def DMI_PROGBUF10 = 0x2a
 
-  def DMI_PROGBUF11 = UInt(0x2b)
+  def DMI_PROGBUF11 = 0x2b
 
 }
 
