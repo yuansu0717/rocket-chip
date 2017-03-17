@@ -531,12 +531,14 @@ class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDe
 
     // --- Abstract Data
 
-    val abstractDataWidth     = 32
-    val abstractDataAddrWidth = log2Up(cfg.nAbstractDataWords)
-
     // These are byte addressible, s.t. the Processor can use
     // byte-addressible instructions to store to them.
     val abstractDataMem       = RegInit(Vec.fill(cfg.nAbstractDataWords*4){0.U(8.W)})
+    val abstractDataWords     = List.tabulate(cfg.nAbstractDataWords) { ii =>
+      val slice = abstractDataMem.slice(ii * 4, (ii+1)*4)
+      slice.reduce[UInt]{ case (x: UInt, y: UInt) => Cat(y, x)
+      }
+    }
 
     // --- Program Buffer
 
@@ -594,25 +596,34 @@ class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDe
     // Abstract Data Access (DMI ... System Bus can override)
     //--------------------------------------------------------------
 
-    val dmiAbstractDataRdEn = Wire(init = Vec.fill(cfg.nAbstractDataWords*4){false.B})
-    val dmiAbstractDataWrEn = Wire(init = Vec.fill(cfg.nAbstractDataWords*4){false.B})
+    val dmiAbstractDataRdEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
+    val dmiAbstractDataWrEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
 
     //--------------------------------------------------------------
     // Program Buffer Access (DMI ... System Bus can override)
     //--------------------------------------------------------------
-    val dmiProgramBufferRdEn = Wire(init = Vec.fill(cfg.nProgramBufferWords*4){false.B})
-    val dmiProgramBufferWrEn = Wire(init = Vec.fill(cfg.nProgramBufferWords*4){false.B})
+    val dmiProgramBufferRdEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
+    val dmiProgramBufferWrEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
 
     // Local reg mapper function : Notify when written, but give the value as well.
-    def wValue (n: Int, value: UInt, set: Bool) : RegField = {
-      RegField(n, value, RegWriteFn((valid, data) => {set := valid ; value := data; Bool(true)}))
+    def wNotify(n: Int, value: UInt, set: Bool) : RegField = {
+      RegField(n, value, RegWriteFn((valid, data) => {
+        set := valid
+        when(valid) {value := data}
+        Bool(true)
+      }))
     }
 
     // Local reg mapper function : Notify when accessed either as read or write.
     def rwNotify (n: Int, rVal: UInt, wVal: UInt, rNotify: Bool, wNotify: Bool) : RegField = {
       RegField(n,
         RegReadFn ((ready)       => {rNotify := ready ; (Bool(true), rVal)}),
-        RegWriteFn((valid, data) => {wNotify := valid ; wVal := data; Bool(true)}))
+        RegWriteFn((valid, data) => {
+          wNotify := valid
+          when (valid) {wVal := data}
+          Bool(true)
+        }
+        ))
     }
 
     dmiNode.regmap(
@@ -755,10 +766,10 @@ class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDe
 
     hartNode.regmap(
       // This memory is writable.
-      HALTED      -> Seq(wValue(sbIdWidth, hartHaltedId, hartHaltedWrEn)),
-      GOING       -> Seq(wValue(sbIdWidth, hartGoingId,  hartGoingWrEn)),
-      RESUMING    -> Seq(wValue(sbIdWidth, hartResumingId,  hartResumingWrEn)),
-      EXCEPTION   -> Seq(wValue(sbIdWidth, hartExceptionId,  hartExceptionWrEn)),
+      HALTED      -> Seq(wNotify(sbIdWidth, hartHaltedId, hartHaltedWrEn)),
+      GOING       -> Seq(wNotify(sbIdWidth, hartGoingId,  hartGoingWrEn)),
+      RESUMING    -> Seq(wNotify(sbIdWidth, hartResumingId,  hartResumingWrEn)),
+      EXCEPTION   -> Seq(wNotify(sbIdWidth, hartExceptionId,  hartExceptionWrEn)),
       DATA        -> abstractDataMem.map(x => RegField(8, x)),
       PROGBUF     -> programBufferMem.map(x => RegField(8, x)),
 
@@ -790,18 +801,20 @@ class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDe
     val ctrlStateNxt = Wire(init = ctrlStateReg)
     val autoexecVec  = Wire(init = Vec.fill(8){false.B})
 
-    val dmiAbstractDataAccess  = dmiAbstractDataWrEn.reduce(_ || _) | dmiAbstractDataRdEn.reduce(_ || _)
+    val dmiAbstractDataAccessVec  = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
+    dmiAbstractDataAccessVec := (dmiAbstractDataWrEn zip dmiAbstractDataRdEn).map{ case (r,w) => r | w}
+    val dmiAbstractDataAccess  = dmiAbstractDataAccessVec.reduce(_ || _ )
     val dmiProgramBufferAccess = dmiProgramBufferWrEn.reduce(_ || _) | dmiProgramBufferRdEn.reduce(_ || _)
-/*
-    if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataIdx === 0.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec0
-    if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataIdx === 1.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec1
-    if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataIdx === 2.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec2
-    if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataIdx === 3.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec3
-    if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataIdx === 4.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec4
-    if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataIdx === 5.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec5
-    if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataIdx === 6.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec6
-    if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataIdx === 7.U) && dmiAbstractDataAccess && ABSTRACTCSReg.autoexec7
- */
+
+    if (cfg.nAbstractDataWords > 0) autoexecVec(0) := (dmiAbstractDataAccessVec(0 * 4)) && ABSTRACTCSReg.autoexec0
+    if (cfg.nAbstractDataWords > 1) autoexecVec(1) := (dmiAbstractDataAccessVec(1 * 4)) && ABSTRACTCSReg.autoexec1
+    if (cfg.nAbstractDataWords > 2) autoexecVec(2) := (dmiAbstractDataAccessVec(2 * 4)) && ABSTRACTCSReg.autoexec2
+    if (cfg.nAbstractDataWords > 3) autoexecVec(3) := (dmiAbstractDataAccessVec(3 * 4)) && ABSTRACTCSReg.autoexec3
+    if (cfg.nAbstractDataWords > 4) autoexecVec(4) := (dmiAbstractDataAccessVec(4 * 4)) && ABSTRACTCSReg.autoexec4
+    if (cfg.nAbstractDataWords > 5) autoexecVec(5) := (dmiAbstractDataAccessVec(5 * 4)) && ABSTRACTCSReg.autoexec5
+    if (cfg.nAbstractDataWords > 6) autoexecVec(6) := (dmiAbstractDataAccessVec(6 * 4)) && ABSTRACTCSReg.autoexec6
+    if (cfg.nAbstractDataWords > 7) autoexecVec(7) := (dmiAbstractDataAccessVec(7 * 4)) && ABSTRACTCSReg.autoexec7
+
     val autoexec = autoexecVec.reduce(_ || _)
 
     //------------------------
@@ -812,9 +825,9 @@ class TLDebugModuleInner()(implicit p: Parameters) extends LazyModule with HasDe
     ABSTRACTCSWrEnLegal := (ctrlStateReg === CtrlState(Waiting))
     COMMANDWrEnLegal    := (ctrlStateReg === CtrlState(Waiting))
 
-    errorBusy := (ABSTRACTCSWrEnMaybe   && ~ABSTRACTCSWrEnLegal)   ||
-                 (COMMANDWrEnMaybe      && ~COMMANDWrEnLegal)      ||
-                 (dmiAbstractDataAccess && abstractCommandBusy)    ||
+    errorBusy := (ABSTRACTCSWrEnMaybe    && ~ABSTRACTCSWrEnLegal)   ||
+                 (COMMANDWrEnMaybe       && ~COMMANDWrEnLegal)      ||
+                 (dmiAbstractDataAccess  && abstractCommandBusy)    ||
                  (dmiProgramBufferAccess && abstractCommandBusy)
 
     // TODO: Maybe Quick Access
