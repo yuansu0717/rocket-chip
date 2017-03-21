@@ -1067,7 +1067,7 @@ class TLDebugModule(implicit p: Parameters) extends LazyModule {
       val debugInterrupts = intnode.bundleOut
     }
 
-    dmOuter.module.io.dmi <> io.dmi
+    dmOuter.module.io.dmi <> io.dmi.dmi
     dmOuter.module.reset := io.dmi.dmiReset
     dmOuter.module.clock := io.dmi.dmiClock
 
