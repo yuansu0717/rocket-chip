@@ -52,8 +52,8 @@ trait HasRocketTiles extends CoreplexRISCVPlatform {
         tile.intNode := intBar.intnode
         (io: HasRocketTilesBundle) => {
           // leave clock as default (simpler for hierarchical PnR)
-          wrapper.module.io.hartid := UInt(i)
-          wrapper.module.io.resetVector := io.resetVector
+          tile.module.io.hartid := UInt(i)
+          tile.module.io.resetVector := io.resetVector
         }
       }
       case Asynchronous(depth, sync) => {
