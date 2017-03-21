@@ -323,6 +323,7 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
       val tlIn = dmiNode.bundleIn
       val debugInterrupts = intnode.bundleOut
       val innerCtrl = new DecoupledIO(new DebugInternalBundle())
+      val haltedBits = Vec(nComponents, Bool()).asInput
     }
 
     //----DMCONTROL (The whole point of 'Outer' is to maintain this register on TCK domain, so that it
@@ -344,12 +345,15 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
     // The below doesn't work in the 'when' unless this intermediate assignment is done.
     val unavailVec = Wire(Vec(nComponents, Bool()))
     unavailVec := io.ctrl.debugUnavail
+    val haltedBits = Wire(Vec(nComponents, Bool()))
+    haltedBits := io.haltedBits
+
 
     val DMCONTROLRdData = Wire(init = DMCONTROLReg)
     when (DMCONTROLReg.hartsel >= nComponents.U) {
       DMCONTROLRdData.hartstatus := DebugModuleHartStatus.NonExistent.id.U
-    //}.elsewhen (haltedBitRegs(DMCONTROLReg.hartsel)) { TODO: will not be an issue when this is moved to DMSTATUS.
-    // DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Halted.id.U
+    }.elsewhen (haltedBits(DMCONTROLReg.hartsel)) { //TODO: will not be an issue when this is moved to DMSTATUS.
+      DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Halted.id.U
     }.elsewhen(unavailVec(DMCONTROLReg.hartsel)) {
       DMCONTROLRdData.hartstatus := DebugModuleHartStatus.Unavailable.id.U
     } .otherwise {
@@ -446,10 +450,13 @@ class TLDebugModuleInnerAsync(device: Device, getNComponents: () => Int)(implici
       val dmi_in = dmiNode.bundleIn
       val dmactive = Bool(INPUT)
       val innerCtrl = new AsyncBundle(1, new DebugInternalBundle()).flip
+      val haltedBits = Vec(getNComponents(), Bool()).asOutput
     }
 
     dmInner.module.io.innerCtrl := FromAsyncBundle(io.innerCtrl)
     dmInner.module.io.dmactive := ~ResetCatchAndSync(clock, ~io.dmactive)
+
+    io.haltedBits := dmInner.module.io.haltedBits
 
   }
 }
@@ -480,13 +487,17 @@ class TLDebugModuleOuterAsync(device: Device)(implicit p: Parameters) extends La
       val dmiInner = dmiInnerNode.bundleOut
       val ctrl = new DebugCtrlBundle(nComponents)
       val debugInterrupts = intnode.bundleOut
-      val innerCtrl = new AsyncBundle(1,new DebugInternalBundle())
+      val innerCtrl = new AsyncBundle(depth=1, new DebugInternalBundle())
+      val haltedBits = Vec(nComponents, Bool()).asInput
     }
 
     dmi2tl.module.io.dmi <> io.dmi
 
     io.ctrl <> dmOuter.module.io.ctrl
-    io.innerCtrl := ToAsyncBundle(dmOuter.module.io.innerCtrl)
+    io.innerCtrl := ToAsyncBundle(dmOuter.module.io.innerCtrl, depth=1)
+    //TODO: Get rid of this when MSTATUS is moved.
+    val haltedBits = Wire(init = io.haltedBits)
+    dmOuter.module.io.haltedBits := ShiftRegister(haltedBits, 3)
   }
 }
 
@@ -521,6 +532,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
       val dmi_in = dmiNode.bundleIn
       val dmactive = Bool(INPUT)
       val innerCtrl = (new DecoupledIO(new DebugInternalBundle())).flip
+      val haltedBits = Vec(nComponents, Bool()).asOutput
     }
 
     //--------------------------------------------------------------
@@ -547,6 +559,8 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
 
     val haltedBitRegs  = Reg(init=Vec.fill(nComponents){false.B})
 
+    //TODO: Remove
+    io.haltedBits := haltedBitRegs
     // --- regmapper outputs
 
     val hartHaltedWrEn       = Wire(Bool())
@@ -1072,8 +1086,12 @@ class TLDebugModule(implicit p: Parameters) extends LazyModule {
     dmOuter.module.clock := io.dmi.dmiClock
 
     dmInner.module.io.innerCtrl := dmOuter.module.io.innerCtrl
+    dmInner.module.io.dmactive := dmOuter.module.io.ctrl.debugActive
+    //TODO: Remove
+    dmOuter.module.io.haltedBits :=  dmInner.module.io.haltedBits
 
     io.ctrl <> dmOuter.module.io.ctrl
+
 
   }
 }
