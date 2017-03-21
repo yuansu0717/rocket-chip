@@ -14,12 +14,12 @@ import util._
 trait CoreplexRISCVPlatform extends CoreplexNetwork {
   val module: CoreplexRISCVPlatformModule
 
-  val debug = LazyModule(new AsyncTLDebugModule())
+  val debug = LazyModule(new TLDebugModule())
   val debug_rom = LazyModule(new TLDebugModuleROM())
   val plic  = LazyModule(new TLPLIC(maxPriorities = 7))
   val clint = LazyModule(new CoreplexLocalInterrupter)
 
-  debug.node := TLAsyncCrossingSource()(TLFragmenter(cbus_beatBytes, cbus_lineBytes)(cbus.node))
+  debug.node := TLFragmenter(cbus_beatBytes, cbus_lineBytes)(cbus.node)
   debug_rom.node := TLFragmenter(cbus_beatBytes, cbus_lineBytes)(cbus.node)
   plic.node  := TLFragmenter(cbus_beatBytes, cbus_lineBytes)(cbus.node)
   clint.node := TLFragmenter(cbus_beatBytes, cbus_lineBytes)(cbus.node)
@@ -33,6 +33,8 @@ trait CoreplexRISCVPlatform extends CoreplexNetwork {
 trait CoreplexRISCVPlatformBundle extends CoreplexNetworkBundle {
   val outer: CoreplexRISCVPlatform
 
+  val nDebugComponents = outer.debug.intnode.bundleOut.size
+
   val debug = new ClockedDMIIO().flip
   val rtcToggle = Bool(INPUT)
   val resetVector = UInt(INPUT, p(XLen))
@@ -42,16 +44,13 @@ trait CoreplexRISCVPlatformModule extends CoreplexNetworkModule {
   val outer: CoreplexRISCVPlatform
   val io: CoreplexRISCVPlatformBundle
 
-  // Debug Module runs off of the DMI Clock. 
-  outer.debug.module.io.dmi <> io.debug.dmi
-  outer.debug.module.clock := io.debug.dmiClock
-  outer.debug.module.reset := io.debug.dmiReset
+  outer.debug.module.io.dmi  <> io.debug
   // TODO: Set this to something meaningful, e.g. "component is in reset or powered down"
   val nDebugComponents = outer.debug.intnode.bundleOut.size
-  outer.debug.module.io.debugUnavail := Vec.fill(nDebugComponents){Bool(false)}
+  outer.debug.module.io.ctrl.debugUnavail := Vec.fill(nDebugComponents){Bool(false)}
   // TODO: Use these values in your power and reset controls.
-  // ... := outer.debug.module.io.dmactive
-  // ... := outer.debug.module.io.ndreset
+  // ... := outer.debug.module.io.ctrl.dmactive
+  // ... := outer.debug.module.io.ctrl.ndreset
 
   // Synchronize the rtc into the coreplex
   val rtcSync = ShiftRegister(io.rtcToggle, 3)
