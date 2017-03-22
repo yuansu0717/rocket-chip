@@ -650,8 +650,8 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     when (~io.dmactive) {
       ABSTRACTAUTOReg := ABSTRACTAUTOReset
     }.elsewhen (ABSTRACTAUTOWrEn) {
-      ABSTRACTAUTOReg.autoexecprogbuf := ABSTRACTAUTOWrData.autoexecprogbuf & ( 1 << cfg.nProgramBufferWords - 1).U
-      ABSTRACTAUTOReg.autoexecdata := ABSTRACTAUTOWrData.autoexecdata & ( 1 << cfg.nAbstractDataWords - 1).U
+      ABSTRACTAUTOReg.autoexecprogbuf := ABSTRACTAUTOWrData.autoexecprogbuf & ( (1 << cfg.nProgramBufferWords) - 1).U
+      ABSTRACTAUTOReg.autoexecdata := ABSTRACTAUTOWrData.autoexecdata & ( (1 << cfg.nAbstractDataWords) - 1).U
     }
     val dmiAbstractDataAccessVec  = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
     dmiAbstractDataAccessVec := (dmiAbstractDataWrEn zip dmiAbstractDataRdEn).map{ case (r,w) => r | w}
