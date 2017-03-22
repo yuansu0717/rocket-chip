@@ -303,7 +303,7 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
   )
 
   val dmiNode = TLRegisterNode (
-    address = Seq(AddressSet(DMI_DMCONTROL << 2, 0x3)),
+    address = AddressSet.misaligned(DMI_DMCONTROL << 2, 4),
     device = device,
     deviceKey = "reg",
     beatBytes = 4,
@@ -359,11 +359,11 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
       DMCONTROLNxt.dmactive := DMCONTROLWrData.dmactive
     }
 
+    // DMCONTROL is the only register, so it's at offset 0.
     dmiNode.regmap(
-      (DMI_DMCONTROL   << 2) -> Seq(RWNotify(32, DMCONTROLRdData.asUInt(),
+      0 -> Seq(RWNotify(32, DMCONTROLRdData.asUInt(),
         DMCONTROLWrDataVal, DMCONTROLRdEn, DMCONTROLWrEn))
     )
-
 
     //--------------------------------------------------------------
     // Interrupt Registers
@@ -504,7 +504,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     require (cfg.supportHartArray == false)
 
     //--------------------------------------------------------------
-    // Register & Wire Declarations
+    // Register & Wire Declarations (which need to be pre-declared)
     //--------------------------------------------------------------
 
     val haltedBitRegs  = Reg(init=Vec.fill(nComponents){false.B})
@@ -519,6 +519,12 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     val hartResumingId       = Wire(UInt(sbIdWidth.W))
     val hartExceptionWrEn    = Wire(Bool())
     val hartExceptionId      = Wire(UInt(sbIdWidth.W))
+
+    val dmiProgramBufferRdEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
+    val dmiProgramBufferWrEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
+
+    val dmiAbstractDataRdEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
+    val dmiAbstractDataWrEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
 
     //--------------------------------------------------------------
     // Registers coming from 'CONTROL' in Outer
@@ -540,10 +546,10 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
 
     val DMSTATUSRdData = Wire(init = (new DMSTATUSFields()).fromBits(0.U))
     DMSTATUSRdData.authenticated := true.B // Not implemented
-    DMSTATUSRdData.versionlo       := "0b10".U
+    DMSTATUSRdData.versionlo       := "b10".U
 
     // Chisel3 Issue #527 , have to do intermediate assignment.
-    wire unavailVec = Wire(init = Vec.fill(nComponents){false.B})
+    val unavailVec = Wire(init = Vec.fill(nComponents){false.B})
     unavailVec := io.debugUnavail
 
     when (selectedHartReg > nComponents.U) {
@@ -561,7 +567,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     }
 
     //TODO
-    DMSTATUSRdData.cfgStrValid := false.B
+    DMSTATUSRdData.cfgstrvalid := false.B
 
     //----HARTINFO
 
@@ -617,7 +623,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
         ABSTRACTCSReg.cmderr := DebugAbstractCommandError.ErrHaltResume.id.U
       }.otherwise {
         when (ABSTRACTCSWrEn){
-          ABSTRACTCSReg.cmderr := ABSTRACTCSReg.cmderr & ~ABSTRACTCSWrData.cmderr
+          ABSTRACTCSReg.cmderr := ABSTRACTCSWrData.cmderr //TODO: Should be write-1-to-clear & ~ABSTRACTCSWrData.cmderr
         }
       }
     }
@@ -628,10 +634,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
 
     //---- ABSTRACTAUTO
 
-    val ABSTRACTAUTOReset = Wire(init = (new ABSTRACTAUTOFields()).fromBits(0.U))
-    ABSTRACTAUTOReset.datacount := cfg.nAbstractDataWords.U
-    ABSTRACTAUTOReset.progsize := cfg.nProgramBufferWords.U
-
+    val ABSTRACTAUTOReset     = Wire(init = (new ABSTRACTAUTOFields()).fromBits(0.U))
     val ABSTRACTAUTOReg       = RegInit(ABSTRACTAUTOReset)
     val ABSTRACTAUTOWrDataVal = Wire(init = 0.U(32.W))
     val ABSTRACTAUTOWrData    = (new ABSTRACTAUTOFields()).fromBits(ABSTRACTAUTOWrDataVal)
@@ -642,6 +645,29 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
 
     val ABSTRACTAUTOWrEnLegal = Wire(init = false.B)
     val ABSTRACTAUTOWrEn      = ABSTRACTAUTOWrEnMaybe && ABSTRACTAUTOWrEnLegal
+
+    when (~io.dmactive) {
+      ABSTRACTAUTOReg := ABSTRACTAUTOReset
+    }.elsewhen (ABSTRACTAUTOWrEn) {
+      ABSTRACTAUTOReg.autoexecprogbuf := ABSTRACTAUTOWrData.autoexecprogbuf & ( 1 << cfg.nProgramBufferWords - 1).U
+      ABSTRACTAUTOReg.autoexecdata := ABSTRACTAUTOWrData.autoexecdata & ( 1 << cfg.nAbstractDataWords - 1).U
+    }
+    val dmiAbstractDataAccessVec  = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
+    dmiAbstractDataAccessVec := (dmiAbstractDataWrEn zip dmiAbstractDataRdEn).map{ case (r,w) => r | w}
+
+    val dmiProgramBufferAccessVec  = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
+    dmiProgramBufferAccessVec := (dmiProgramBufferWrEn zip dmiProgramBufferRdEn).map{ case (r,w) => r | w}
+
+    val dmiAbstractDataAccess  = dmiAbstractDataAccessVec.reduce(_ || _ )
+    val dmiProgramBufferAccess = dmiProgramBufferAccessVec.reduce(_ || _)
+
+    // This will take the shorter of the lists, which is what we want.
+    val autoexecData  = Wire(init = Vec.fill(cfg.nAbstractDataWords){false.B})
+    val autoexecProg  = Wire(init = Vec.fill(cfg.nProgramBufferWords){false.B})
+      (autoexecData zip ABSTRACTAUTOReg.autoexecdata.toBools).zipWithIndex.foreach {case (t, i) => t._1 := dmiAbstractDataAccessVec(i * 4) && t._2 }
+      (autoexecProg zip ABSTRACTAUTOReg.autoexecprogbuf.toBools).zipWithIndex.foreach {case (t, i) => t._1 := dmiProgramBufferAccessVec(i * 4) && t._2}
+
+    val autoexec = autoexecData.reduce(_ || _) || autoexecProg.reduce(_ || _)
 
     //---- COMMAND
 
@@ -704,16 +730,9 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     // Abstract Data Access (DMI ... System Bus can override)
     //--------------------------------------------------------------
 
-    val dmiAbstractDataRdEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
-    val dmiAbstractDataWrEn = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
-
     //--------------------------------------------------------------
     // Program Buffer Access (DMI ... System Bus can override)
     //--------------------------------------------------------------
-    val dmiProgramBufferRdEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
-    val dmiProgramBufferWrEn = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
-
-
     dmiNode.regmap(
       (DMI_DMSTATUS    << 2) -> Seq(RegField.r(32, DMSTATUSRdData.asUInt())),
       //TODO (DMI_CFGSTRADDR0 << 2) -> cfgStrAddrFields,
@@ -823,6 +842,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     val abstractGeneratedMem = Reg(Vec(2, (UInt(32.W))))
     val abstractGeneratedI = Wire(new GeneratedI())
     val abstractGeneratedS = Wire(new GeneratedS())
+    val nop = Wire(new GeneratedI())
 
     abstractGeneratedI.opcode := ((new GeneratedI()).fromBits(rocket.Instructions.LW.value.U)).opcode
     abstractGeneratedI.rd     := (accessRegisterCommandReg.regno & 0x1F.U)
@@ -837,6 +857,11 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     abstractGeneratedS.rs2    := (accessRegisterCommandReg.regno & 0x1F.U)
     abstractGeneratedS.immhi  := (DATA >> 5).U
 
+    nop := ((new GeneratedI()).fromBits(rocket.Instructions.ADDI.value.U))
+    nop.rd   := 0.U
+    nop.rs1  := 0.U
+    nop.imm  := 0.U
+
     when (goAbstract) {
       abstractGeneratedMem(0) := Mux(/*TODO: accessRegisterCommandReg.transfer*/true.B,
         Mux(accessRegisterCommandReg.write,
@@ -844,10 +869,10 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
           abstractGeneratedI.asUInt(),
           // To read a register, we need to do SW.
           abstractGeneratedS.asUInt()),
-        rocket.Instructions.NOP.value.U
+        nop.asUInt()
       )
       abstractGeneratedMem(1) := Mux(/*TODO accessRegisterCommandReg.postexec*/ false.B,
-        rocket.Instructions.NOP.value.U,
+        nop.asUInt(),
         rocket.Instructions.EBREAK.value.U)
     }
 
@@ -890,23 +915,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int)(implicit p: 
     // Combo
     val hartHalted   = haltedBitRegs(selectedHartReg)
     val ctrlStateNxt = Wire(init = ctrlStateReg)
-    val autoexecData  = Wire(init = Vec.fill(cfg.nAbstractDataWords){false.B})
-    val autoexecProg  = Wire(init = Vec.fill(cfg.nAbstractProrgramBufferWords){false.B})
 
-    val dmiAbstractDataAccessVec  = Wire(init = Vec.fill(cfg.nAbstractDataWords * 4){false.B})
-    dmiAbstractDataAccessVec := (dmiAbstractDataWrEn zip dmiAbstractDataRdEn).map{ case (r,w) => r | w}
-
-    val dmiProgramBufferAccessVec  = Wire(init = Vec.fill(cfg.nProgramBufferWords * 4){false.B})
-    dmiProgramBufferAccessVec := (dmiProgramBufferWrEn zip dmiProgramBufferRdEn).map{ case (r,w) => r | w}
-
-    val dmiAbstractDataAccess  = dmiAbstractDataAccessVec.reduce(_ || _ )
-    val dmiProgramBufferAccess = dmiProgramBufferAccessVec.reduce(_ || _)
-
-    // This will take the shorter of the lists, which is what we want.
-    (autoexecData zip ABSTRACTAUTOReg.autoexecdata.toBools()).foreach {case (a, d) => a := dmiAbstractDataAccessVec(i * 4) && d}
-    (autoexecProg zip ABSTRACTAUTOReg.autoexecprogbuf.toBools()).foreach {case (a, d) => a := dmiProgramBufferAccessVec(i * 4) && d}
-
-    val autoexec = autoexecData.reduce(_ || _) || autoexecProg.reduce(_ || _)
 
     //------------------------
 
@@ -1050,13 +1059,12 @@ class TLDebugModuleInnerAsync(device: Device, getNComponents: () => Int)(implici
       val dmactive = Bool(INPUT)
       val innerCtrl = new AsyncBundle(1, new DebugInternalBundle()).flip
       // This comes from tlClk domain.
-      val debugUnavail    = Vec(nComponents, Bool()).asInput
-
+      val debugUnavail    = Vec(getNComponents(), Bool()).asInput
     }
 
     dmInner.module.io.innerCtrl := FromAsyncBundle(io.innerCtrl)
     dmInner.module.io.dmactive := ~ResetCatchAndSync(clock, ~io.dmactive)
-    dmInner.mdoule.io.debugUnavail := io.debugUnavail
+    dmInner.module.io.debugUnavail := io.debugUnavail
 
   }
 }

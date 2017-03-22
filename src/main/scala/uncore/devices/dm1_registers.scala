@@ -166,13 +166,13 @@ object DMI_RegAddrs {
 
   def DMI_PROGBUF11 =  0x2b
 
-  def DMI_PROGBUF11 =  0x2c
+  def DMI_PROGBUF12 =  0x2c
 
-  def DMI_PROGBUF11 =  0x2d
+  def DMI_PROGBUF13 =  0x2d
 
-  def DMI_PROGBUF11 =  0x2e
+  def DMI_PROGBUF14 =  0x2e
 
-  def DMI_PROGBUF11 =  0x2f
+  def DMI_PROGBUF15 =  0x2f
 
   /* This register serves as a 32-bit serial port to the authentication
         module.
