@@ -1149,8 +1149,15 @@ class DMIToTL(implicit p: Parameters) extends LazyModule {
 
     val (_,  gbits) = edge.Get(src, addr, size)
     val (_, pfbits) = edge.Put(src, addr, size, io.dmi.req.bits.data)
+    // This is just used for the DMI's NOP. TODO: Consider whether to send this
+    // across TL at all or just respond immediately.
+    val (_, nbits)  = edge.Put(src, addr, size, io.dmi.req.bits.data, mask = 0.U)
 
-    tl.a.bits        := Mux((io.dmi.req.bits.op === DMIConsts.dmi_OP_WRITE),  pfbits ,  gbits)
+    when (io.dmi.req.bits.op === DMIConsts.dmi_OP_WRITE)       { tl.a.bits := pfbits
+    }.elsewhen  (io.dmi.req.bits.op === DMIConsts.dmi_OP_READ) { tl.a.bits := gbits
+    }.otherwise {                                                tl.a.bits := nbits
+    }
+
     tl.a.valid       := io.dmi.req.valid
     io.dmi.req.ready := tl.a.ready
 
