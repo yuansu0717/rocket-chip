@@ -413,8 +413,6 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
   }
 }
 
-
-
 class TLDebugModuleOuterAsync(device: Device)(implicit p: Parameters) extends LazyModule {
 
   val dmi2tl = LazyModule(new DMIToTL())
@@ -425,7 +423,7 @@ class TLDebugModuleOuterAsync(device: Device)(implicit p: Parameters) extends La
 
   val dmiInnerNode = TLAsyncOutputNode()
 
-  intnode := dmOuter.intnode
+  intnode :*= dmOuter.intnode
 
   dmiXbar.node := dmi2tl.node
   dmOuter.dmiNode := dmiXbar.node
@@ -1089,7 +1087,7 @@ class TLDebugModule(implicit p: Parameters) extends LazyModule {
 
   dmInner.dmiNode := dmOuter.dmiInnerNode
   dmInner.tlNode := node
-  intnode := dmOuter.intnode
+  intnode :*= dmOuter.intnode
 
   lazy val module = new LazyModuleImp(this) {
     val nComponents = intnode.bundleOut.size
