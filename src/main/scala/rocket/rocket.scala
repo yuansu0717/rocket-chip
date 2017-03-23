@@ -653,6 +653,8 @@ class Rocket(implicit p: Parameters) extends CoreModule()(p) {
   io.rocc.cmd.bits.rs1 := wb_reg_wdata
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
+  csr.io.events(0) := wb_reg_pc 
+
   if (enableCommitLog) {
     val pc = Wire(SInt(width=xLen))
     pc := wb_reg_pc
