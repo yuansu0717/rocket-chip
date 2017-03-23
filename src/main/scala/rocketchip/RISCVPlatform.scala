@@ -93,9 +93,10 @@ trait PeripheryDebugModule extends HasTopLevelNetworksModule {
   val io: PeripheryDebugBundle
 
   io.debug.foreach { dbg => outer.coreplex.module.io.debug <> dbg }
-  io.jtag.foreach { jtag =>
 
-    val dtm = Module (new DebugTransportModuleJTAG(p(DMKey).nDMIAddrSize, p(JtagDTMKey)))
+  val dtm = if (io.jtag.isDefined) Some[DebugTransportModuleJTAG](Module (new DebugTransportModuleJTAG(p(DMKey).nDMIAddrSize, p(JtagDTMKey)))) else None
+  dtm.foreach { dtm =>
+
     dtm.io.jtag <> io.jtag.get
 
     dtm.clock := io.jtag.get.TCK
